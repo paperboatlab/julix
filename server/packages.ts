@@ -13,6 +13,12 @@ export class PackageError extends Error {}
 const SAFE = /^[A-Za-z0-9._+-]+$/;
 const JULIXPLOT = { name: "JulixPlot", url: "https://github.com/paperboatlab/JulixPlot.jl", rev: "main" };
 
+/** Whether the folder's project lists JulixPlot (Julix adds it before the first session).
+ * ponytail: reads Project.toml only; a deps volume wiped under a listed JulixPlot needs Packages › add again. */
+export function hasJulixPlot(root: string): boolean {
+  try { return /^\s*JulixPlot\s*=/m.test(fs.readFileSync(path.join(root, "Project.toml"), "utf8")); } catch { return false; }
+}
+
 /** The Julia code for one step; it lists the direct dependencies after, and says it finished. */
 export function recipe(op: "list" | "add" | "remove", name = "", local = false): { code: string; network: boolean; writable: boolean } {
   if (op !== "list" && !SAFE.test(name)) throw new PackageError("a package name is letters, digits and . _ + -");
