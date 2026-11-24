@@ -1,8 +1,49 @@
 # Paperboat Julix
 
-An interactive Julia workbench for matrices and scientific computing, on the [julix-kernel](https://github.com/paperboatlab/julix-kernel), with [JulixBase.jl](https://github.com/paperboatlab/JulixBase.jl) and [JulixPlot.jl](https://github.com/paperboatlab/JulixPlot.jl). Part of [Paperboat](https://github.com/paperboatlab/paperboat).
+A Julia workbench: scripts, a console, the session's variables and the figures your code draws, in one
+window, with the code run by Paperboat's Julia runtime. Part of [Paperboat](https://github.com/paperboatlab/paperboat).
 
-**Status:** being rebuilt from the ground up on the new platform ([paperboat](https://github.com/paperboatlab/paperboat): runtimes in containers; [paperboat-ui](https://github.com/paperboatlab/paperboat-ui): the rebrand). The previous version, to copy from: [squero-studio-mx-legacy](https://github.com/paperboatlab/squero-studio-mx-legacy) (archived).
+Julix opens a **folder** of `.jl` scripts. F5 runs a script, Ctrl Enter the cell at the cursor (a cell
+starts at a `##` line), Shift Enter a line; the console runs an expression in the same session. What
+the code shows as SVG or PNG becomes a figure, kept per run.
+
+**Status:** v0.1, rebuilt on the new platform. The previous version, Squero Studio MX, is archived as
+[squero-studio-mx-legacy](https://github.com/paperboatlab/squero-studio-mx-legacy). Next: the shared
+code editor and interactive plots from `@paperboatlab/ui`, then JulixPlot.jl and shared variables with
+Simplicial.
+
+**Design:** [ARCHITECTURE.md](ARCHITECTURE.md) · **Look:** [@paperboatlab/ui](https://github.com/paperboatlab/paperboat-ui)
+and the rebrand mockup (`agent-docs/rebrand/apps/julix`)
+
+## Layout
+
+```text
+server/     the app server (Node 22, TypeScript, no dependencies): the folder, the Julia session, the API
+client/     the page (React, @paperboatlab/ui, CodeMirror), built into dist/
+bin/julix   the command
+examples/   read-only examples, shown in every folder
+test/       unit tests; e2e.test.ts runs real Julia when paperboatd is there
+```
+
+## Build
+
+```sh
+npm ci
+npm run build        # the page into dist/
+npm run typecheck
+npm test             # e2e.test.ts too, when paperboatd is on PATH or $PAPERBOATD is set
+```
+
+## Run
+
+```sh
+bin/julix ~/work/tank-level              # http://127.0.0.1:59220/
+bin/julix . --port 59300
+```
+
+Running code needs the Paperboat runtime daemon: `paperboatd` on PATH (the `paperboat-cli` package) or
+`PAPERBOATD=/path/to/paperboatd`; it starts on demand and pulls the Julia image the first time.
+`/?open=<path>` opens a file.
 
 ## Licence
 
