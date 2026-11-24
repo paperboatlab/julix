@@ -252,7 +252,7 @@ export function App() {
   const julia = runs.findLast((r) => r.runtime)?.runtime;
 
   return (
-    <div className={`win${hidden.b ? " hide-b" : ""}`}>
+    <div className="win">
       <header className="bar">
         <AppMark app="julix" size={26} idle={!running} label="Julix" />
         <span className="wm">Julix</span>
@@ -292,7 +292,7 @@ export function App() {
                   ))}
                 </div>
                 {isJl && <Key size="sm" kind="quiet" icon="play" onClick={runCellAtCursor} title="Run the cell at the cursor (Ctrl Enter)">Run cell</Key>}
-                {doc && <EditorSettingsKey settings={editor} onSettings={setEditor} lintNote="Julia's parser, once the session runs" />}
+                {doc && <EditorSettingsKey settings={editor} onSettings={setEditor} lintNote="Julia's parser" />}
               </div>
               {doc?.readOnly && (
                 <div className="ro">An example: read-only. Run it as it is, or <button type="button" className="lnk" onClick={() => copyIn(doc.path)}>copy it to your folder</button> to change it.</div>

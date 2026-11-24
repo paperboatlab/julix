@@ -1,7 +1,7 @@
 // The console: what every run printed, returned, drew and threw, on the screen (black in both themes),
 // and a REPL line into the same session: Enter runs, ↑ ↓ recall, Tab completes (`\pi` Tab is π, as in
-// Julia's REPL), Ctrl C interrupts. Hidden, the panel keeps its head (REBRAND "Show / hide panels").
-import { Icon, Spinner, readStored, writeStored } from "@paperboatlab/ui";
+// Julia's REPL), Ctrl C interrupts. The kit's bottom Panel: hidden, it keeps its head.
+import { Panel, Spinner, readStored, writeStored } from "@paperboatlab/ui";
 import { useEffect, useRef, useState } from "react";
 import { julia, type Completions } from "@paperboatlab/ui/editor";
 import { api, session, type Run } from "./api.ts";
@@ -57,14 +57,7 @@ export function Console({ runs, running, hidden, onHidden, onFigure, onRun }: {
   };
 
   return (
-    <section className={`panel cons${hidden ? " hidden" : ""}`} aria-label="Console">
-      <div className="panel-head">
-        <b>Console</b>
-        <small>{runs.length ? `${runs.length} runs` : "julia"}</small>
-        <button type="button" className="hide-key" aria-label={hidden ? "Show the Console" : "Hide the Console"} title={`${hidden ? "Show" : "Hide"} the Console (Ctrl J)`} onClick={() => onHidden(!hidden)}>
-          <span className="flip"><Icon name="hide-bottom" /></span>
-        </button>
-      </div>
+    <Panel name="Console" side="bottom" hidden={hidden} onHidden={onHidden} className="cons" count={runs.length ? `${runs.length} runs` : "julia"}>
       <div className="cbody" inert={hidden || undefined} onClick={() => getSelection()?.isCollapsed && field.current?.focus()}>
         <div className="clines">
           {runs.length === 0 && <div className="d">Julia starts with the first run: F5 runs the open script, or type below.</div>}
@@ -97,6 +90,6 @@ export function Console({ runs, running, hidden, onHidden, onFigure, onRun }: {
           {running && <span className="ac"><Spinner size={12} /> Ctrl C interrupts</span>}
         </form>
       </div>
-    </section>
+    </Panel>
   );
 }
