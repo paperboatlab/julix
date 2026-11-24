@@ -23,19 +23,15 @@
     "test": "node --test test/*.test.ts"
   },
   "devDependencies": {
-    "@codemirror/commands": "^6.11.1",
-    "@codemirror/language": "^6.13.1",
     "@codemirror/state": "^6.7.6",
     "@codemirror/view": "^6.43.15",
-    "@lezer/highlight": "^1.2.5",
-    "@paperboatlab/ui": "github:paperboatlab/paperboat-ui#222b81a811326cdfee1ed7f7d40f9ea1c41a8ffa",
+    "@paperboatlab/ui": "github:paperboatlab/paperboat-ui#895373e28cd5b24bf90f38bd091291b2e0941a2d",
     "@types/node": "^22.19.0",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "esbuild": "^0.25.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
-    "typescript": "^7.0.2",
-    "@codemirror/legacy-modes": "^6.5.1"
+    "typescript": "^7.0.2"
   }
 }

@@ -34,11 +34,15 @@ flowchart LR
   `.julix/figures/<run>/`. Variables are asked after each run, before the run reports done. Interrupt
   goes through the daemon (SIGINT); no answer within 3 s restarts the session.
 - `server/control.ts`, `server/runtime.ts`: the protocol clients, copied from Malachite.
-- `server/main.ts`: the HTTP server: the page from `dist/`, the JSON API, Server-Sent Events.
-- `client/`: `App.tsx` (the window: bar, cards, dialogs, Ctrl K), `Code.tsx` (CodeMirror with Julia
-  and cells), `cells.ts` (where cells start and end), `Console.tsx` (runs and the REPL line),
-  `traceback.ts`, `Workspace.tsx` (Variables, Figures), `Keys.tsx` (the runtimes key, the Panels key),
-  `Tree.tsx` (the tree and the file menu), `files.tsx` (file icons), `api.ts`.
+- `server/main.ts`: the HTTP server: the page from `dist/`, the JSON API, Server-Sent Events. The editor's
+  `lint` and `complete` pass through `/api/session` as the runtime answers them; `/api/values` prints a
+  variable's numbers for the plot (queued with runs, `ans` untouched).
+- `client/`: `App.tsx` (the window: bar, cards, dialogs, Ctrl K, the file menus), `Code.tsx` (the kit's
+  Editor with Julix's cells and run keys), `cells.ts` (where cells start and end), `Console.tsx` (runs and
+  the REPL line), `traceback.ts`, `Workspace.tsx` (Variables with the selected one plotted, Figures),
+  `Keys.tsx` (the runtimes key), `api.ts` (with the session the editor lints and completes through).
+- From `@paperboatlab/ui`: the editor, Julia's grammar, lint and completion (`/editor`), the file tree
+  (`/files`), `Plot2D` and `Heatmap` (`/plot`), the Panels key, and the rest of the kit.
 
 ## 3. Invariants
 

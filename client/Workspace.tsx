@@ -1,7 +1,8 @@
 // The Workspace card: the session's variables (filtered by name), and every figure kept, by run. The
 // Debug tab waits for the runtime's debug ops (plans/2026-11-24_22-30_julix_v0_1.md).
 import { Key, RemoveKey, Tabs } from "@paperboatlab/ui";
-import { useMemo, useState } from "react";
+import { Heatmap, Plot2D } from "@paperboatlab/ui/plot";
+import { useEffect, useMemo, useState } from "react";
 import { api, type Figure, type Variable } from "./api.ts";
 
 export type FigureRef = { run: string; n: number };
@@ -64,11 +65,25 @@ export function Workspace({ tab, onTab, variables, figures, shown, onShow, onCop
   );
 }
 
+type Values = Awaited<ReturnType<typeof api.values>>;
+
+/** The selected variable: its type and value, and a real vector or matrix drawn (Plot2D, Heatmap). The
+ *  numbers come from the session when the variable changes; a scalar or anything else shows its value only. */
 function Inspect({ v, onCopy }: { v: Variable; onCopy: (text: string, what: string) => void }) {
+  const [vals, setVals] = useState<Values>(null);
+  const plottable = /^(Vector|Matrix|Array|StepRange|UnitRange|LinRange|StepRangeLen|AbstractRange)\b/.test(v.type) || /^(Vector|Matrix)\{/.test(v.type);
+  useEffect(() => {
+    let live = true;
+    setVals(null);
+    if (plottable) api.values(v.name).then((r) => live && setVals(r), () => {});
+    return () => { live = false; };
+  }, [v.name, v.type, v.summary, plottable]);
   return (
     <div className="insp">
       <div className="ih"><b>{v.name}</b><small>{v.type}{v.size !== undefined ? ` · length ${v.size}` : ""}</small>
         <Key size="sm" kind="quiet" onClick={() => onCopy(v.summary, "Value")}>Copy value</Key></div>
+      {vals?.kind === "vector" && <div className="iplot"><Plot2D series={[{ x: vals.values.map((_, i) => i + 1), y: vals.values, label: v.name }]} axes={{ grid: true, xlabel: { text: "index" } }} /></div>}
+      {vals?.kind === "matrix" && <div className="iplot heat"><Heatmap values={vals.rows} /></div>}
       <pre>{v.summary}</pre>
     </div>
   );

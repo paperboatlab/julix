@@ -1,4 +1,5 @@
 // The app server's API (server/main.ts), typed for the page.
+import type { Session } from "@paperboatlab/ui/editor";
 export type Entry = { path: string; name: string; kind: "dir" | "file"; size?: number; mtime?: number; children?: Entry[] };
 export type Kind = "file" | "cell" | "line" | "console";
 export type Output =
@@ -28,7 +29,7 @@ async function call<T>(method: string, url: string, body?: unknown): Promise<T> 
 const q = encodeURIComponent;
 
 export const api = {
-  folder: () => call<{ name: string; root: string; version: string }>("GET", "/api/folder"),
+  folder: () => call<{ name: string; root: string; version: string; session: "stopped" | "starting" | "running" }>("GET", "/api/folder"),
   tree: () => call<{ files: Entry[]; examples: Entry[] }>("GET", "/api/tree"),
   file: (p: string) => call<{ path: string; text: string; readOnly: boolean }>("GET", `/api/file?path=${q(p)}`),
   save: (p: string, text: string) => call("PUT", `/api/file?path=${q(p)}`, { text }),
@@ -43,7 +44,7 @@ export const api = {
   restart: () => call("POST", "/api/restart", {}),
   variables: () => call<Variable[]>("GET", "/api/variables"),
   runs: () => call<Run[]>("GET", "/api/runs"),
-  complete: (code: string, pos: number) => call<{ matches: string[]; start: number; end: number }>("POST", "/api/complete", { code, pos }),
+  values: (name: string) => call<{ kind: "vector"; values: number[] } | { kind: "matrix"; rows: number[][] } | null>("GET", `/api/values?name=${q(name)}`),
   figures: () => call<Figure[]>("GET", "/api/figures"),
   removeFigures: (run: string) => call("POST", "/api/figures/remove", { run }),
   runtimes: () => call<Peek>("GET", "/api/runtimes"),
@@ -56,3 +57,13 @@ export function listen(on: (e: any) => void): () => void {
   es.onmessage = (m) => { try { on(JSON.parse(m.data)); } catch { /* not ours */ } };
   return () => es.close();
 }
+
+/** The Julia session as the kit's editor and languages speak to it (paperboat-runtime/0 `lint`, `complete`),
+ *  through the server. Pass it only while a session runs: without one the server has no answer. */
+export const session: Session = {
+  request: async (op, args) => {
+    const r = await call<{ result: unknown }>("POST", "/api/session", { op, args });
+    if (r.result === null) throw new Error("no Julia session yet");
+    return r.result;
+  },
+};

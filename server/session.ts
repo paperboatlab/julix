@@ -46,6 +46,9 @@ export class Sessions {
   /** This session's runs, newest last (the console after a page reload); a new session starts empty. */
   runs: Run[] = [];
   variables: Variable[] = [];
+  /** Whether Julia is up, for a page that opens later than the event that said so. */
+  state: "stopped" | "starting" | "running" = "stopped";
+  private set(state: Sessions["state"]) { this.state = state; this.emit({ type: "session", state }); }
 
   private folder: Folder;
   private control: Control;
@@ -65,15 +68,15 @@ export class Sessions {
 
   private open(): Promise<Session> {
     this.session ??= (async () => {
-      this.emit({ type: "session", state: "starting" });
+      this.set("starting");
       const lease = await this.control.call<Lease>("acquire", { runtime: "julia", mode: "session", project: this.folder.root, owner: OWNER(this.folder) });
       if (lease.state === "failed") throw new Error(lease.error ?? "Julia failed to start");
       const rt = await Runtime.connect(path.join(lease.ipc, "runtime.sock"), 120_000);
       rt.onClose = () => this.drop();
-      this.emit({ type: "session", state: "running" });
+      this.set("running");
       return { lease, rt };
     })();
-    this.session.catch(() => { this.session = undefined; this.emit({ type: "session", state: "stopped" }); });
+    this.session.catch(() => { this.session = undefined; this.set("stopped"); });
     return this.session;
   }
 
@@ -83,7 +86,7 @@ export class Sessions {
     this.variables = [];
     this.runs = [];
     p?.then((s) => { s.rt.close(); this.control.call("release", { lease: s.lease.id }).catch(() => {}); }, () => {});
-    this.emit({ type: "session", state: "stopped" });
+    this.set("stopped");
     this.emit({ type: "variables", variables: [] });
   }
 
@@ -151,14 +154,43 @@ export class Sessions {
     this.emit({ type: "variables", variables: this.variables });
   }
 
-  /** Completions at `pos` (a character offset in `code`); none when no session is up yet. */
-  async complete(code: string, pos: number): Promise<{ matches: string[]; start: number; end: number }> {
+  /** The editor's and the console's questions to the session (`lint`, `complete`), passed as they are: the
+   *  kit's languages speak paperboat-runtime/0 themselves. Null while no session runs: Julia is not started
+   *  just to lint, so the editor colours the code and waits for the first run. */
+  async ask(op: "lint" | "complete", args: Record<string, unknown>): Promise<unknown> {
     const s = await this.session?.catch(() => undefined);
-    if (!s) return { matches: [], start: pos, end: pos };
-    const byte = Buffer.byteLength(code.slice(0, pos));   // the runtime counts bytes; the page counts characters
-    const r = await s.rt.request<{ matches: string[]; start: number; end: number }>("complete", { code, pos: byte });
-    const chars = (b: number) => Buffer.from(code).subarray(0, b).toString().length;
-    return { matches: r.matches, start: chars(r.start), end: chars(r.end) };
+    return s ? s.rt.request(op, args) : null;
+  }
+
+  /** A variable's numbers for the Workspace plot: a real vector (up to 100 000) or matrix (up to 400 × 400).
+   *  Printed, not returned, and the code ends with `;`, so the user's `ans` stays theirs. Queued with runs. */
+  values(name: string): Promise<{ kind: "vector"; values: number[] } | { kind: "matrix"; rows: number[][] } | null> {
+    if (!this.variables.some((v) => v.name === name)) return Promise.resolve(null);   // only a name the session listed
+    const v = `getfield(@__MODULE__, Symbol(${JSON.stringify(name).replaceAll("$", "\\$")}))`;
+    const code = `let v = ${v}
+  if v isa AbstractVector{<:Real} && length(v) <= 100_000
+    print("v", join(Float64.(v), ","))
+  elseif v isa AbstractMatrix{<:Real} && all(<=(400), size(v))
+    print("m", size(v, 2), ";", join(Float64.(vec(permutedims(v))), ","))
+  end
+end;`;
+    const out = this.queue.then(async () => {
+      const s = await this.session?.catch(() => undefined);
+      if (!s) return "";
+      let text = "";
+      await s.rt.request("eval", { code, cell: "julix: workspace plot" }, (n) => { if (n.type === "stream") text += n.text; }).catch(() => {});
+      return text;
+    });
+    this.queue = out.catch(() => {});
+    const num = (s: string) => (s === "Inf" ? Infinity : s === "-Inf" ? -Infinity : Number(s));   // NaN reads as NaN
+    return out.then((text) => {
+      if (text.startsWith("v")) return { kind: "vector", values: text.length > 1 ? text.slice(1).split(",").map(num) : [] };
+      const m = /^m(\d+);(.*)$/s.exec(text);
+      if (!m) return null;
+      const cols = Number(m[1]), all = m[2] ? m[2].split(",").map(num) : [], rows: number[][] = [];
+      for (let i = 0; i < all.length; i += cols) rows.push(all.slice(i, i + cols));
+      return { kind: "matrix", rows };
+    });
   }
 
   /** Every figure kept, newest run first. */

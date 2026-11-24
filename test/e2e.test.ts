@@ -45,8 +45,17 @@ test("a script runs in a Julia session lease: output, figures, variables, errors
     assert.match(err.error.message, /boom/);
     assert.match(err.error.traceback ?? "", /sub\/a\.jl:6/);
 
-    // completion in the same session (\pi Tab is π)
-    assert.ok((await s.complete("\\pi", 3)).matches.includes("π"));
+    // the editor's questions pass through as the runtime answers them: completion (\pi Tab is π), lint
+    assert.ok(((await s.ask("complete", { code: "\\pi", pos: 3 })) as { matches: string[] }).matches.includes("π"));
+    const lint = (await s.ask("lint", { code: "x = (1, 2" })) as { problems: { severity: string }[] };
+    assert.ok(lint.problems.some((p) => p.severity === "error"), JSON.stringify(lint));
+
+    // a variable's numbers for the Workspace plot, without touching `ans`
+    await done(s.run("console", "console", "M = [1.0 2; 3 4]; ans_before = 7"));
+    assert.deepEqual(await s.values("M"), { kind: "matrix", rows: [[1, 2], [3, 4]] });
+    assert.deepEqual(await s.values("h").then((v) => v && v.kind === "vector" && v.values.length), 200);
+    assert.equal(await s.values("K"), null);   // a scalar has nothing to plot
+    assert.equal(await s.values("nope"), null);   // only a name the session listed
   } finally {
     s.close();
   }

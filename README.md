@@ -8,9 +8,9 @@ starts at a `##` line), Shift Enter a line; the console runs an expression in th
 the code shows as SVG or PNG becomes a figure, kept per run.
 
 **Status:** v0.1, rebuilt on the new platform. The previous version, Squero Studio MX, is archived as
-[squero-studio-mx-legacy](https://github.com/paperboatlab/squero-studio-mx-legacy). Next: the shared
-code editor and interactive plots from `@paperboatlab/ui`, then JulixPlot.jl and shared variables with
-Simplicial.
+[squero-studio-mx-legacy](https://github.com/paperboatlab/squero-studio-mx-legacy). Its editor, file tree and
+plots are `@paperboatlab/ui`'s. Next: JulixPlot.jl (interactive figures on the kit's plots) and shared
+variables with Simplicial.
 
 **Design:** [ARCHITECTURE.md](ARCHITECTURE.md) · **Look:** [@paperboatlab/ui](https://github.com/paperboatlab/paperboat-ui)
 and the rebrand mockup (`agent-docs/rebrand/apps/julix`)
@@ -19,7 +19,7 @@ and the rebrand mockup (`agent-docs/rebrand/apps/julix`)
 
 ```text
 server/     the app server (Node 22, TypeScript, no dependencies): the folder, the Julia session, the API
-client/     the page (React, @paperboatlab/ui, CodeMirror), built into dist/
+client/     the page (React, @paperboatlab/ui: editor, files, plots), built into dist/
 bin/julix   the command
 examples/   read-only examples, shown in every folder
 test/       unit tests; e2e.test.ts runs real Julia when paperboatd is there

@@ -3,37 +3,52 @@
 // Workspace card at the right; the Console below. Settings, help and About are Ctrl K commands; Ctrl K
 // is the only way to search. Everything shown comes from the app server; the files are the record.
 import {
-  AppMark, Dialog, Key, Panel, Search, Segmented, ThemePicker, Toasts, chordMatches, readStored, typing, useTheme, useToasts, writeStored,
-  type SearchItem, type Theme,
+  AppMark, Dialog, Icon, Key, Panel, PanelsKey, Search, Segmented, ThemePicker, Toasts, chordMatches, readStored, typing, useTheme, useToasts, writeStored,
+  type MenuEntry, type PaneRect, type SearchItem, type Theme,
 } from "@paperboatlab/ui";
+import { DEFAULT_EDITOR_SETTINGS, type EditorPos } from "@paperboatlab/ui/editor";
+import { FileTree, fileIconFor, type FileActions, type FileEntry } from "@paperboatlab/ui/files";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, listen, type Entry, type Figure, type Run, type Variable } from "./api.ts";
+import { api, listen, session as juliaSession, type Entry, type Figure, type Run, type Variable } from "./api.ts";
 import { cellAt, cells } from "./cells.ts";
 import { Code } from "./Code.tsx";
 import { Console } from "./Console.tsx";
-import { FileIcon, typeOf } from "./files.tsx";
-import { PANELS, PanelsKey, RuntimesKey, type Side } from "./Keys.tsx";
-import { Tree, type FileActions } from "./Tree.tsx";
+import { RuntimesKey } from "./Keys.tsx";
 import { Workspace, type FigureRef } from "./Workspace.tsx";
 
+type Side = "l" | "f" | "b" | "r";
+const PANELS: { side: Side; name: string; keys: string }[] = [
+  { side: "l", name: "Files", keys: "Ctrl B" }, { side: "f", name: "Figure", keys: "Ctrl Alt F" },
+  { side: "b", name: "Console", keys: "Ctrl J" }, { side: "r", name: "Workspace", keys: "Ctrl Alt B" },
+];
+/** The window as the Panels key sketches it: files, editor, figure, console, workspace. */
+const LAYOUT: Record<string, PaneRect> = { l: [4, 4, 10, 36], e: [16, 4, 16, 26], f: [34, 4, 12, 26], b: [16, 32, 30, 8], r: [48, 4, 12, 36] };
 type Ask = { title: string; label?: string; value?: string; danger?: boolean; ok: string; text?: string; run: (v: string) => void };
-type Doc = { path: string; text: string; readOnly: boolean };
+type Doc = { path: string; text: string; readOnly: boolean; v: number };   // v: a new copy from disk (remounts the editor)
 const isTheme = (v: unknown): v is Theme => v === "light" || v === "dark" || v === "system";
 const isList = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === "string");
 const isHidden = (v: unknown): v is Record<Side, boolean> => !!v && typeof v === "object" && PANELS.every((p) => typeof (v as any)[p.side] === "boolean");
-const isSize = (v: unknown): v is "12" | "13" | "14" => v === "12" || v === "13" || v === "14";
 const dirOf = (p: string) => (p.includes("/") ? p.slice(0, p.lastIndexOf("/")) : "");
 const base = (p: string) => p.slice(p.lastIndexOf("/") + 1);
 const files = (es: Entry[]): string[] => es.flatMap((e) => (e.kind === "dir" ? files(e.children ?? []) : [e.path]));
+const typeOf = (p: string) => (p.includes(".") ? p.slice(p.lastIndexOf(".") + 1).toLowerCase() : "");
+const IMAGE = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"]);
+/** The server's tree as the kit's FileTree takes it: one row per entry, its depth beside it. */
+const rows = (es: Entry[], depth = 0): FileEntry[] =>
+  es.flatMap((e) => [{ path: e.path, name: e.name, depth, kind: e.kind === "dir" ? "folder" : "file" } as FileEntry, ...(e.kind === "dir" ? rows(e.children ?? [], depth + 1) : [])]);
+function TypeIcon({ name, folder = false }: { name: string; folder?: boolean }) {
+  const { icon, tone } = fileIconFor(name, folder ? "folder" : "file");
+  return <span className="fi" style={{ color: `var(--file-${tone})` }}><Icon name={icon} size={14} /></span>;
+}
 const NEW_SCRIPT = "# A Julia script. F5 runs it; Ctrl Enter runs the cell at the cursor (a cell starts at ##).\n\n## First cell\n";
 
 export function App() {
   const [theme, setTheme] = useState<Theme>(() => readStored("paperboat.theme", isTheme) ?? "system");
-  useTheme(theme);
-  const [size, setSize] = useState(() => readStored("julix.editor.size", isSize) ?? "13");
+  const appTheme = useTheme(theme);
+  // ponytail: the kit's defaults until @paperboatlab/ui exports its settings key and hook (useEditorSettings)
+  const editor = DEFAULT_EDITOR_SETTINGS;
   const [folder, setFolder] = useState<{ name: string; root: string; version: string } | null>(null);
   const [tree, setTree] = useState<{ files: Entry[]; examples: Entry[] }>({ files: [], examples: [] });
-  const [expanded, setExpanded] = useState(() => new Set(readStored("julix.tree.open", isList) ?? ["@examples"]));
   const [tabs, setTabs] = useState<string[]>(() => readStored("julix.tabs", isList) ?? []);
   const [current, setCurrent] = useState<string | null>(() => readStored("julix.tabs", isList)?.[0] ?? null);
   const [doc, setDoc] = useState<Doc | null>(null);
@@ -53,19 +68,18 @@ export function App() {
   const { toasts, show, dismiss } = useToasts();
   const fail = useCallback((e: unknown) => show({ title: "Couldn't do that", detail: String((e as Error).message ?? e), state: "failed" }), [show]);
   const currentRef = useRef(current);
+  const copies = useRef(0);
   currentRef.current = current;
 
   useEffect(() => writeStored("paperboat.theme", theme), [theme]);
-  useEffect(() => writeStored("julix.editor.size", size), [size]);
   useEffect(() => writeStored("julix.panels", hidden), [hidden]);
-  useEffect(() => writeStored("julix.tree.open", [...expanded]), [expanded]);
   useEffect(() => writeStored("julix.tabs", current ? [current, ...tabs.filter((t) => t !== current)] : tabs), [tabs, current]);
   const toggle = useCallback((s: Side, h?: boolean) => setHidden((x) => ({ ...x, [s]: h ?? !x[s] })), []);
 
   const reload = useCallback(() => api.tree().then(setTree, fail), [fail]);
   const reloadFigures = useCallback(() => api.figures().then((fs) => { setFigures(fs); setShown((s) => s ?? (fs[0] ? { run: fs[0].run, n: fs[0].n } : null)); }, () => {}), []);
   useEffect(() => {
-    api.folder().then((v) => { setFolder(v); document.title = `${v.name} · Julix`; }, fail);
+    api.folder().then((v) => { setFolder(v); setSession(v.session); document.title = `${v.name} · Julix`; }, fail);
     reload(); reloadFigures();
     api.variables().then(setVariables, () => {});
     api.runs().then(setRuns, () => {});
@@ -73,7 +87,7 @@ export function App() {
 
   const load = useCallback((p: string | null) => {
     if (!p) { setDoc(null); return; }
-    api.file(p).then((d) => { if (currentRef.current === p) { setDoc(d); setDraft(null); } }, (e) => { setDoc(null); fail(e); });
+    api.file(p).then((d) => { if (currentRef.current === p) { setDoc({ ...d, v: ++copies.current }); setDraft(null); } }, (e) => { setDoc(null); fail(e); });
   }, [fail]);
   useEffect(() => { load(current); }, [current, load]);
 
@@ -100,7 +114,6 @@ export function App() {
   const open = useCallback((p: string, side = false) => {
     setTabs((t) => (t.includes(p) ? t : side ? [...t, p] : [p, ...t].slice(0, 12)));
     if (!side) setCurrent(p);
-    setExpanded((s) => { const n = new Set(s); for (let d = dirOf(p); d; d = dirOf(d)) n.add(d); if (p.startsWith("@examples/")) n.add("@examples"); return n; });
   }, []);
   // a deep link opens a file: /?open=<path in the folder> (the Launcher and other apps use it)
   useEffect(() => { const p = new URLSearchParams(location.search).get("open"); if (p) open(p); }, [open]);
@@ -133,17 +146,50 @@ export function App() {
   const copyIn = useCallback((p: string) => api.copy(p, base(p)).then((r) => { reload(); open(r.path); show({ title: "Copied to your folder", detail: `${r.path}: yours to change`, state: "done" }); }, fail), [open, reload, show, fail]);
   const copy = useCallback((t: string, what: string) => navigator.clipboard.writeText(t).then(() => show({ title: `${what} copied`, detail: t.length > 80 ? `${t.slice(0, 80)}…` : t, state: "done" }), fail), [show, fail]);
 
-  const actions: FileActions = {
-    open, newScript, copyIn, copy,
-    run: (p) => { open(p); api.run("file", { path: p }).catch(fail); setHidden((h) => ({ ...h, b: false })); },
-    newFolder: (dir) => setAsk({ title: "New folder", label: "Name", ok: "Create", run: (n) => api.mkdir(dir ? `${dir}/${n}` : n).then(() => { reload(); setExpanded((s) => new Set(s).add(dir)); }, fail) }),
-    rename: (p) => setAsk({
-      title: "Rename", label: "Path in the folder", value: p, ok: "Rename",
-      run: (to) => to !== p && api.move(p, to).then(() => { reload(); setTabs((t) => t.map((x) => (x === p ? to : x))); if (current === p) setCurrent(to); }, fail),
-    }),
-    trash: (p) => !p.startsWith("@") && setAsk({ title: `Move ${p} to the trash?`, danger: true, ok: "Move to trash", text: "It goes to .julix/trash in the folder, so it can come back.",
-      run: () => api.trash(p).then(() => { reload(); close(p); show({ title: "Moved to the trash", detail: `${p} · .julix/trash`, state: "done" }); }, fail) }),
-    reveal: (p) => { api.reveal(p).catch(fail); },
+  const newFolder = (dir: string) => setAsk({ title: "New folder", label: "Name", ok: "Create", run: (n) => api.mkdir(dir ? `${dir}/${n}` : n).then(reload, fail) });
+  const retab = (from: string, to: string) => { setTabs((t) => t.map((x) => (x === from ? to : x))); if (current === from) setCurrent(to); };
+  const rename = (p: string) => setAsk({ title: "Rename", label: "Path in the folder", value: p, ok: "Rename", run: (to) => to !== p && api.move(p, to).then(() => { reload(); retab(p, to); }, fail) });
+  const trash = (p: string) => setAsk({ title: `Move ${p} to the trash?`, danger: true, ok: "Move to trash", text: "It goes to .julix/trash in the folder, so it can come back.",
+    run: () => api.trash(p).then(() => { reload(); close(p); show({ title: "Moved to the trash", detail: `${p} · .julix/trash`, state: "done" }); }, fail) });
+  const into = (e?: FileEntry) => (!e ? "" : e.kind === "folder" ? e.path : dirOf(e.path));
+  const treeActions: FileActions = {
+    onOpen: (e) => e.kind === "file" && open(e.path),
+    onNewFile: (e) => newScript(into(e)),
+    onNewFolder: (e) => newFolder(into(e)),
+    onRename: (e) => rename(e.path),
+    onDuplicate: (e) => { api.copy(e.path, e.path).then((r) => { reload(); open(r.path); }, fail); },
+    onDelete: (e) => trash(e.path),
+    onCopyPath: (e) => { copy(e.path, "Path"); },
+    onMove: (src, dst) => { const to = `${dst ? `${into(dst)}/` : ""}${src.name}`; if (to !== src.path) api.move(src.path, to).then(() => { reload(); retab(src.path, to); }, fail); },
+  };
+  const menuFor = (e?: FileEntry): MenuEntry[] => {
+    if (!e || e.kind === "folder") {
+      const dir = into(e);
+      return [{ id: "new", label: "New script here", shortcut: "Ctrl N", run: () => newScript(dir) }, { id: "folder", label: "New folder here", run: () => newFolder(dir) },
+        ...(e ? ["-" as const, { id: "rename", label: "Rename…", shortcut: "F2", run: () => rename(e.path) }, { id: "path", label: "Copy path", icon: "copy" as const, run: () => { copy(e.path, "Path"); } },
+          { id: "reveal", label: "Reveal in file manager", run: () => { api.reveal(e.path).catch(fail); } }, "-" as const, { id: "trash", label: "Move to trash", icon: "trash" as const, shortcut: "Del", run: () => trash(e.path) }] : [])];
+    }
+    const t = typeOf(e.path), owner = ({ mo: "Articula", pst: "Simplicial", psf: "Simplicial", md: "Malachite" } as Record<string, string>)[t];
+    return [
+      { id: "open", label: "Open", shortcut: "Enter", run: () => open(e.path) },
+      { id: "side", label: "Open to the side", run: () => open(e.path, true) },
+      ...(owner ? [{ id: "in", label: `Open in ${owner}`, icon: "link-external" as const, disabled: true, why: `${owner} isn't connected to Julix yet`, run: () => {} }] : []),
+      ...(t === "jl" ? ["-" as const, { note: "Julix" }, { id: "run", label: "Run", icon: "play" as const, shortcut: "F5", run: () => runPath(e.path) }] : []),
+      "-", { id: "rename", label: "Rename…", shortcut: "F2", run: () => rename(e.path) }, { id: "dup", label: "Duplicate", run: () => treeActions.onDuplicate!(e) },
+      "-", { id: "path", label: "Copy path", icon: "copy", run: () => { copy(e.path, "Path"); } }, { id: "reveal", label: "Reveal in file manager", run: () => { api.reveal(e.path).catch(fail); } },
+      "-", { id: "trash", label: "Move to trash", icon: "trash", shortcut: "Del", run: () => trash(e.path) },
+    ];
+  };
+  const exampleMenu = (e?: FileEntry): MenuEntry[] => (!e || e.kind === "folder" ? [] : [
+    { id: "open", label: "Open", shortcut: "Enter", run: () => open(e.path) },
+    "-", { note: "Julix" }, { id: "run", label: "Run", icon: "play", shortcut: "F5", run: () => runPath(e.path) }, { id: "copyin", label: "Copy to my folder", icon: "copy", run: () => copyIn(e.path) },
+    "-", { id: "path", label: "Copy path", icon: "copy", run: () => { copy(e.path.replace(/^@examples\//, "examples/"), "Path"); } },
+  ]);
+  const runPath = (p: string) => { open(p); api.run("file", { path: p }).catch(fail); setHidden((h) => ({ ...h, b: false })); };
+  const exampleActions: FileActions = {
+    onOpen: (e) => e.kind === "file" && open(e.path),
+    onDuplicate: (e) => { if (e.kind === "file") copyIn(e.path); },
+    onCopyPath: (e) => { copy(e.path.replace(/^@examples\//, "examples/"), "Path"); },
   };
 
   // keys: Ctrl K search, Ctrl B / Ctrl Alt B / Ctrl Alt F / Ctrl J the panels, Ctrl N a script, F5 run, Ctrl , settings
@@ -177,7 +223,7 @@ export function App() {
     { id: "c:copyin", label: "Copy this example to my folder", group: "Commands", scope: "Commands", icon: "copy", disabled: !current?.startsWith("@examples/"), why: "Open an example first", run: () => current && copyIn(current) },
     ...PANELS.map((p): SearchItem => ({ id: `p:${p.side}`, label: `${hidden[p.side] ? "Show" : "Hide"} ${p.name === "Figure" ? "the Figure" : p.name === "Console" ? "the Console" : p.name}`, shortcut: p.keys, group: "Commands", scope: "Commands", icon: "command", run: () => toggle(p.side) })),
     ...(["light", "dark", "system"] as Theme[]).map((t): SearchItem => ({ id: `t:${t}`, label: `Theme: ${t}`, group: "Commands", scope: "Commands", icon: `theme-${t}`, disabled: theme === t, why: "It is the theme now", run: () => setTheme(t) })),
-    { id: "s:settings", label: "Settings", detail: "theme, editor", shortcut: "Ctrl ,", group: "Settings", scope: "Settings", icon: "a-settings", run: () => setDialog("settings") },
+    { id: "s:settings", label: "Settings", detail: "theme, packages", shortcut: "Ctrl ,", group: "Settings", scope: "Settings", icon: "a-settings", run: () => setDialog("settings") },
     { id: "s:packages", label: "Settings: Julia packages", detail: "import Pkg; Pkg.add(…) in the console", group: "Settings", scope: "Settings", icon: "package", run: () => { toggle("b", false); show({ title: "Packages", detail: "Type import Pkg; Pkg.add(\"Name\") in the console; they install into the folder's Julia environment.", state: "done" }); } },
     { id: "h:manual", label: "Julix manual", detail: "github.com/paperboatlab/julix", shortcut: "F1", group: "Help", scope: "Help", icon: "question", run: () => { window.open("https://github.com/paperboatlab/julix#readme", "_blank", "noopener"); } },
     ...files(tree.examples).map((p): SearchItem => ({ id: `h:${p}`, label: `Example: ${base(p)}`, group: "Help", scope: "Help", icon: "book", run: () => open(p) })),
@@ -191,17 +237,17 @@ export function App() {
   const julia = runs.findLast((r) => r.runtime)?.runtime;
 
   return (
-    <div className={`win${hidden.b ? " hide-b" : ""}`} style={{ "--code-size": `${size}px` } as React.CSSProperties}>
+    <div className={`win${hidden.b ? " hide-b" : ""}`}>
       <header className="bar">
         <AppMark app="julix" size={26} idle={!running} label="Julix" />
         <span className="wm">Julix</span>
-        <span className="well proj" title={folder?.root}>{FileIcon({ path: "", dir: true })}{folder?.name ?? "…"}</span>
+        <span className="well proj" title={folder?.root}><TypeIcon name="" folder />{folder?.name ?? "…"}</span>
         <span className="bend">
           {running
             ? <Key busy onClick={() => api.interrupt().catch(fail)} title="Interrupt (Ctrl C in the console)">Stop</Key>
             : <Key kind="primary" icon="play" disabled={!isJl} onClick={() => run("file")} title={isJl ? `Run ${base(current!)} (F5)` : "Open a .jl script to run it"}>Run{isJl && <span className="runwhat">{base(current!)}</span>}</Key>}
           <RuntimesKey running={running} starting={session === "starting"} version={peekVersion} />
-          <PanelsKey hidden={hidden} onToggle={(s) => toggle(s)} />
+          <PanelsKey panels={PANELS.map((p) => ({ id: p.side, label: p.name, keys: p.keys, shown: !hidden[p.side] }))} layout={LAYOUT} onToggle={(id) => toggle(id as Side)} />
           <span className="lsep" />
           <ThemePicker theme={theme} onChange={setTheme} />
         </span>
@@ -209,9 +255,13 @@ export function App() {
 
       <main className="ws">
         <Panel name={folder?.name ?? "Files"} count={`${files(tree.files).length}`} side="left" hidden={hidden.l} onHidden={(h) => toggle("l", h)} icon="folder" width={250}
-          head={<span className="tools"><Key size="sm" kind="quiet" round icon="new-file" label="New script (Ctrl N)" onClick={() => newScript("")} /><Key size="sm" kind="quiet" round icon="new-folder" label="New folder" onClick={() => actions.newFolder("")} /></span>}>
-          <Tree entries={tree.files} examples={tree.examples} current={current} open={expanded} actions={actions}
-            onToggle={(p) => setExpanded((s) => { const n = new Set(s); n.has(p) ? n.delete(p) : n.add(p); return n; })} />
+          head={<span className="tools"><Key size="sm" kind="quiet" round icon="new-file" label="New script (Ctrl N)" onClick={() => newScript("")} /><Key size="sm" kind="quiet" round icon="new-folder" label="New folder" onClick={() => newFolder("")} /></span>}>
+          <FileTree entries={rows(tree.files)} active={current ?? undefined} actions={treeActions} menu={menuFor} ariaLabel="Files"
+            labels={{ newFile: "New script", empty: "No files yet: make a script (Ctrl N), or copy an example." }} />
+          {tree.examples.length > 0 && <>
+            <div className="exh">Examples<small>read-only</small></div>
+            <FileTree entries={rows(tree.examples)} active={current ?? undefined} actions={exampleActions} menu={exampleMenu} ariaLabel="Examples" />
+          </>}
         </Panel>
 
         <div className="mid">
@@ -221,7 +271,7 @@ export function App() {
                 <div className="tabs2" role="tablist">
                   {tabs.map((p) => (
                     <span key={p} role="tab" aria-selected={p === current} className={p === current ? "on" : ""} onClick={() => open(p)} onAuxClick={(e) => e.button === 1 && close(p)}>
-                      <FileIcon path={p} size={14} />{base(p)}{p === current && draft !== null && !doc?.readOnly && <i className="dot" title="Saving" />}
+                      <TypeIcon name={p} />{base(p)}{p === current && draft !== null && !doc?.readOnly && <i className="dot" title="Saving" />}
                       <button type="button" className="tx" aria-label={`Close ${base(p)}`} onClick={(e) => { e.stopPropagation(); close(p); }}>×</button>
                     </span>
                   ))}
@@ -234,10 +284,12 @@ export function App() {
               <div className="body">
                 {!current && <div className="empty"><AppMark app="julix" size={72} idle label="" /><p>Open a script, or make one. The examples show how Julix runs code.</p>
                   <span className="row"><Key kind="primary" icon="new-file" onClick={() => newScript("")}>New script</Key>{tree.examples[0] && <Key onClick={() => open(files(tree.examples)[0])}>Open an example</Key>}</span></div>}
-                {doc && doc.path === current && (isJl || typeOf(doc.path) === "")
-                  ? <Code key={`${doc.path}:${doc.readOnly}`} text={text} readOnly={doc.readOnly} onChange={setDraft} onCursor={(line, col) => setCursor({ line, col })}
-                      run={{ cell: (c, l) => run("cell", c, l), line: (c, l) => run("line", c, l), file: () => run("file"), save: () => draft !== null && current && save(current, draft) }} />
-                  : doc && doc.path === current && <pre className="ftext">{doc.text}</pre>}
+                {doc && doc.path === current && (IMAGE.has(typeOf(doc.path))
+                  ? <div className="empty"><p>An image: Julix edits scripts and text.</p></div>
+                  : <Code key={`${doc.path}:${doc.readOnly}:${doc.v}`} path={doc.path} text={text} readOnly={doc.readOnly} onChange={setDraft}
+                      onPos={(p: EditorPos) => setCursor({ line: p.line, col: p.col })} settings={editor} appTheme={appTheme}
+                      session={session === "running" ? juliaSession : undefined}
+                      run={{ cell: (c, l) => run("cell", c, l), line: (c, l) => run("line", c, l), file: () => run("file"), save: () => draft !== null && current && save(current, draft) }} />)}
               </div>
               {doc && isJl && (
                 <div className="efoot"><span>Ln {cursor.line}, Col {cursor.col}{nCells > 1 && at ? ` · cell ${at.index + 1} of ${nCells}` : ""}</span>
@@ -270,7 +322,6 @@ export function App() {
         <Dialog title="Settings" onClose={() => setDialog(null)} actions={<Key onClick={() => setDialog(null)}>Done</Key>}>
           <div className="sett">
             <span>Theme</span><Segmented label="Theme" value={theme} onChange={setTheme} options={[{ value: "light", label: "Light" }, { value: "dark", label: "Dark" }, { value: "system", label: "System" }]} />
-            <span>Editor text</span><Segmented label="Editor text size" value={size} onChange={setSize} options={[{ value: "12", label: "12 px" }, { value: "13", label: "13 px" }, { value: "14", label: "14 px" }]} />
             <span>Julia packages</span><span className="muted">In the console: <code>import Pkg; Pkg.add("Name")</code>. They install into this folder's environment.</span>
           </div>
         </Dialog>

@@ -3,7 +3,8 @@
 // Julia's REPL), Ctrl C interrupts. Hidden, the panel keeps its head (REBRAND "Show / hide panels").
 import { Icon, Spinner, readStored, writeStored } from "@paperboatlab/ui";
 import { useEffect, useRef, useState } from "react";
-import { api, type Run } from "./api.ts";
+import { julia, type Completions } from "@paperboatlab/ui/editor";
+import { api, session, type Run } from "./api.ts";
 import { ours } from "./traceback.ts";
 
 const isList = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === "string");
@@ -44,13 +45,15 @@ export function Console({ runs, running, hidden, onHidden, onFigure, onRun }: {
   };
   const complete = async () => {
     const pos = field.current?.selectionStart ?? input.length;
-    const r = await api.complete(input, pos).catch(() => null);
-    if (!r || !r.matches.length) { setHint(r ? "no completions" : "completions need the session: run something first"); return; }
+    let r: Completions | null;
+    try { r = await julia.complete!(input, pos, session); } catch { setHint("completions need the session: run something first"); return; }
+    if (!r) { setHint("no completions"); return; }
     // one match, or what every match starts with, goes in; the rest are listed under the line
-    const common = r.matches.reduce((a, b) => { let i = 0; while (i < a.length && a[i] === b[i]) i++; return a.slice(0, i); });
-    const insert = r.matches.length === 1 ? r.matches[0] : common;
-    if (insert.length > r.end - r.start) setInput(input.slice(0, r.start) + insert + input.slice(r.end));
-    setHint(r.matches.length > 1 ? r.matches.slice(0, 40).join("  ") + (r.matches.length > 40 ? `  … ${r.matches.length - 40} more` : "") : "");
+    const labels = r.options.map((o) => o.label);
+    const common = labels.reduce((a, b) => { let i = 0; while (i < a.length && a[i] === b[i]) i++; return a.slice(0, i); });
+    const insert = labels.length === 1 ? labels[0] : common;
+    if (insert.length > r.to - r.from) setInput(input.slice(0, r.from) + insert + input.slice(r.to));
+    setHint(labels.length > 1 ? labels.slice(0, 40).join("  ") + (labels.length > 40 ? `  … ${labels.length - 40} more` : "") : "");
   };
 
   return (
