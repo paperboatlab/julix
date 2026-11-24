@@ -1,43 +1,43 @@
-// The folder's Julia packages (the folder is the Julia project): the list, add and remove. Adding lets
-// Julia reach the network for that one step (the platform runs it in a short lease; the session itself
-// never has the network), so the dialog says so before it starts. JulixPlot is one click.
-import { Dialog, Key, RemoveKey, Spinner } from "@paperboatlab/ui";
-import { useEffect, useState } from "react";
+// The folder's Julia packages in the kit's package manager (PackageWindow, PackagePanel: "first Julix's
+// julia up"). The folder is the Julia project; Julix owns the loading and the actions, the platform's
+// recipe: an add lets Julia reach the network for that one step (a short lease; the session itself never
+// has the network). The registry is a shelf to start from; any General package adds by its name.
+import { PackagePanel, PackageWindow, type RegistryItem } from "@paperboatlab/ui/packages";
+import { useCallback, useEffect, useState } from "react";
 import { api, type Package } from "./api.ts";
 
-export function Packages({ onClose, onDone }: { onClose: () => void; onDone: (what: string) => void }) {
+// ponytail: a shelf, not General's index (the session has no network to search it); add any name by typing it
+const SHELF: RegistryItem[] = [
+  { name: "JulixPlot", note: "figures you pan, zoom and orbit in Julix", repo: "github.com/paperboatlab/JulixPlot.jl" },
+  { name: "Plots", note: "plots through backends (shown as images)" }, { name: "CairoMakie", note: "Makie, drawn with Cairo (shown as images)" },
+  { name: "DataFrames", note: "tables" }, { name: "CSV", note: "read and write CSV" }, { name: "Optim", note: "optimisation" },
+  { name: "DifferentialEquations", note: "ODEs, SDEs, DAEs" }, { name: "ControlSystems", note: "LTI systems, Bode, step" },
+  { name: "Statistics", note: "standard library: already there" }, { name: "LinearAlgebra", note: "standard library: already there" },
+];
+
+export function Packages({ julia, onClose, onDone }: { julia?: string; onClose: () => void; onDone: (what: string) => void }) {
   const [list, setList] = useState<Package[] | null>(null);
-  const [name, setName] = useState("");
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
+  const [output, setOutput] = useState("");
   useEffect(() => { api.packages().then((r) => setList(r.packages), (e) => setError(e.message)); }, []);
-  const go = (op: "add" | "remove", n: string) => {
-    setBusy(`${op === "add" ? "Adding" : "Removing"} ${n}…`);
+  const change = useCallback((op: "add" | "remove", name: string) => {
+    setBusy(`${op === "add" ? "adding" : "removing"} ${name}`);
     setError("");
-    api.changePackages(op, n).then((r) => { setList(r.packages); setName(""); onDone(`${n} ${op === "add" ? "added" : "removed"}`); }, (e) => setError(e.message)).finally(() => setBusy(""));
-  };
-  const has = (n: string) => !!list?.some((p) => p.name === n);
+    api.changePackages(op, name)
+      .then((r) => { setList(r.packages); setOutput(r.log.split("\n").slice(-12).join("\n")); onDone(`${name} ${op === "add" ? "added" : "removed"}`); }, (e) => setError(e.message))
+      .finally(() => setBusy(""));
+  }, [onDone]);
   return (
-    <Dialog title="Julia packages" onClose={onClose} actions={<Key onClick={onClose}>Done</Key>}>
-      <div className="pkgs">
-        <p className="muted">This folder is a Julia project; its packages load with <code>using</code> in the session. Adding one lets
-          Julia download it, and what it needs, for that step only.</p>
-        {!has("JulixPlot") && <div className="pkg-jp"><b>JulixPlot</b><span className="muted">figures you can pan, zoom and orbit here</span>
-          <Key size="sm" kind="primary" disabled={!!busy} onClick={() => go("add", "JulixPlot")}>Add</Key></div>}
-        <label className="well ask"><input value={name} onChange={(e) => setName(e.target.value.trim())} placeholder="A package from the General registry: Plots, DataFrames…"
-          onKeyDown={(e) => e.key === "Enter" && name && !busy && go("add", name)} aria-label="Package name" disabled={!!busy} />
-          <Key size="sm" disabled={!name || !!busy} onClick={() => go("add", name)}>Add</Key></label>
-        {busy && <p className="pkg-busy"><Spinner size={12} /> {busy} (Julia's package manager; the first time can take minutes)</p>}
-        {error && <pre className="pkg-err">{error}</pre>}
-        <div className="pkg-list">
-          {list === null && !error && <p className="muted"><Spinner size={12} /> reading the project…</p>}
-          {list?.length === 0 && <p className="muted">No packages yet: the standard library is always there.</p>}
-          {list?.map((p) => (
-            <div key={p.name} className="pkg"><b>{p.name}</b><span className="mono muted">{p.version}</span>
-              <RemoveKey label={`Remove ${p.name}`} onClick={() => !busy && go("remove", p.name)} /></div>
-          ))}
-        </div>
-      </div>
-    </Dialog>
+    <PackageWindow title="Julia packages" tags={[julia && `julia ${julia}`, "this folder's project"]} onClose={onClose}>
+      <PackagePanel busy={busy} error={error} output={output} loading={list === null && !error ? "reading the project" : undefined}
+        runtime={{ title: "Julia", tag: julia, hint: "The Julia runtime comes with Paperboat (paperboatd's julia image); its version moves with Paperboat's." }}
+        environment={list && {
+          title: "environment", path: "Project.toml", tags: ["adding downloads it: the network, for that step only"],
+          packages: list.map((p) => ({ name: p.name, version: p.version })), empty: "No packages yet: the standard library is always there.",
+          remove: (n) => change("remove", n),
+        }}
+        registry={{ title: "General", source: "pkg.julialang.org", itemsLabel: "to start with", items: SHELF, add: (n) => change("add", n) }} />
+    </PackageWindow>
   );
 }

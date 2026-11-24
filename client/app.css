@@ -172,15 +172,3 @@ kbd { font: 11px var(--font-mono); color: var(--text-muted); border: 1px solid v
 .fig-legend-cell.horiz .fig-legend-items { flex-direction: row; flex-wrap: wrap; gap: 8px; }
 .fig-legend-entry { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
 .frow .fth.scene { font: 10px var(--font-mono); color: var(--text-on-screen-muted); }
-
-/* the packages dialog */
-.pkgs { width: 480px; display: flex; flex-direction: column; gap: 12px; }
-.pkgs p { margin: 0; } .pkgs code { font: 12px var(--font-mono); }
-.pkg-jp { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 1px solid var(--line); border-radius: var(--radius-md); background: color-mix(in srgb, var(--accent) var(--tint), var(--surface-raised)); }
-.pkg-jp .key { margin-left: auto; }
-.pkgs .well.ask { gap: 8px; } .pkgs .well.ask input { font-family: var(--font-sans); }
-.pkg-busy { display: flex; align-items: center; gap: 6px; color: var(--accent-text); font-size: 12px; }
-.pkg-err { margin: 0; max-height: 160px; overflow: auto; padding: 8px 10px; border-radius: var(--radius-md); background: color-mix(in srgb, var(--danger) 8%, transparent); color: var(--danger-text); font: 11.5px/1.5 var(--font-mono); white-space: pre-wrap; }
-.pkg-list { display: flex; flex-direction: column; max-height: 220px; overflow: auto; }
-.pkg { display: flex; align-items: center; gap: 10px; padding: 6px 2px; border-top: 1px solid var(--line); }
-.pkg .remove { margin-left: auto; }

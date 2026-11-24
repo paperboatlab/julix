@@ -50,7 +50,7 @@ export const api = {
   removeFigures: (run: string) => call("POST", "/api/figures/remove", { run }),
   runtimes: () => call<Peek>("GET", "/api/runtimes"),
   packages: () => call<{ packages: Package[] }>("GET", "/api/packages"),
-  changePackages: (op: "add" | "remove", name: string) => call<{ packages: Package[] }>("POST", "/api/packages", { op, name }),
+  changePackages: (op: "add" | "remove", name: string) => call<{ packages: Package[]; log: string }>("POST", "/api/packages", { op, name }),
   figure: (f: { run: string; n: number }) => `/api/figure?run=${q(f.run)}&n=${f.n}`,
 };
 

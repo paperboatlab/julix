@@ -347,7 +347,7 @@ export function App() {
           </div>
         </Dialog>
       )}
-      {dialog === "packages" && <Packages onClose={() => setDialog(null)} onDone={(what) => show({ title: what, detail: "using it in the session picks it up", state: "done" })} />}
+      {dialog === "packages" && <Packages julia={julia?.version} onClose={() => setDialog(null)} onDone={(what) => show({ title: what, detail: "using it in the session picks it up", state: "done" })} />}
       <Toasts toasts={toasts} onDismiss={dismiss} />
     </div>
   );
