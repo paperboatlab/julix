@@ -25,7 +25,7 @@
   "devDependencies": {
     "@codemirror/state": "^6.7.6",
     "@codemirror/view": "^6.43.15",
-    "@paperboatlab/ui": "github:paperboatlab/paperboat-ui#895373e28cd5b24bf90f38bd091291b2e0941a2d",
+    "@paperboatlab/ui": "github:paperboatlab/paperboat-ui#22d33fa0f40a2600b1d0b9265976968d6ca5f15e",
     "@types/node": "^22.19.0",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
