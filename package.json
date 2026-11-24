@@ -1,0 +1,39 @@
+{
+  "name": "julix",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Paperboat Julix: a Julia workbench",
+  "license": "GPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/paperboatlab/julix.git"
+  },
+  "type": "module",
+  "bin": {
+    "julix": "bin/julix"
+  },
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "build": "node scripts/build.ts",
+    "dev": "node scripts/build.ts --watch",
+    "start": "node server/main.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test test/*.test.ts"
+  },
+  "devDependencies": {
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/view": "^6.43.15",
+    "@paperboatlab/ui": "github:paperboatlab/paperboat-ui#22d33fa0f40a2600b1d0b9265976968d6ca5f15e",
+    "@types/node": "^22.19.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/three": "^0.187.0",
+    "esbuild": "^0.25.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "three": "^0.187.0",
+    "typescript": "^7.0.2"
+  }
+}
