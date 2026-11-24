@@ -7,6 +7,7 @@ import path from "node:path";
 import { Control, type Lease } from "./control.ts";
 import { Folder } from "./folder.ts";
 import { Runtime, RuntimeError } from "./runtime.ts";
+import { hasJulixPlot, packages } from "./packages.ts";
 
 export type Kind = "file" | "cell" | "line" | "console";
 export type Output =
@@ -75,6 +76,8 @@ export class Sessions {
   private open(): Promise<Session> {
     this.session ??= (async () => {
       this.set("starting");
+      // JulixPlot comes with Julix: added to the folder's project before the first session, once
+      if (!hasJulixPlot(this.folder.root)) this.emit({ type: "packages", packages: (await packages(this.control, this.folder, "add", "JulixPlot")).packages });
       const lease = await this.control.call<Lease>("acquire", { runtime: "julia", mode: "session", project: this.folder.root, owner: OWNER(this.folder) });
       if (lease.state === "failed") throw new Error(lease.error ?? "Julia failed to start");
       const rt = await Runtime.connect(path.join(lease.ipc, "runtime.sock"), 120_000);

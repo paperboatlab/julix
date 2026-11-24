@@ -10,10 +10,10 @@ body { background: var(--surface-ground); color: var(--text); font: 13px/1.45 va
 .fi { display: inline-flex; flex: none; }
 .ntabs { display: flex; align-items: center; gap: 12px; padding: 0 10px 0 6px; border-bottom: 1px solid var(--line); height: 40px; flex: none; }
 .tabs2 { display: flex; gap: 2px; overflow: hidden; flex: 1; min-width: 0; height: 100%; }
-.tabs2 span { display: flex; align-items: center; gap: 6px; padding: 0 6px 0 10px; height: 100%; color: var(--text-muted); cursor: pointer; white-space: nowrap; position: relative; font-size: 13px; }
-.tabs2 span:hover { color: var(--text); }
-.tabs2 span.on { color: var(--text); }
-.tabs2 span.on::after { content: ""; position: absolute; left: 6px; right: 6px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--accent); }
+.tabs2 > span { display: flex; align-items: center; gap: 6px; padding: 0 6px 0 10px; height: 100%; color: var(--text-muted); cursor: pointer; white-space: nowrap; position: relative; font-size: 13px; }
+.tabs2 > span:hover { color: var(--text); }
+.tabs2 > span.on { color: var(--text); }
+.tabs2 > span.on::after { content: ""; position: absolute; left: 6px; right: 6px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--accent); }
 .tabs2 .tx { all: unset; width: 16px; height: 16px; border-radius: 50%; display: grid; place-items: center; color: var(--text-muted); font-size: 13px; line-height: 1; cursor: pointer; }
 .tabs2 .tx:hover { background: var(--surface-sunken); color: var(--text); }
 .efoot { display: flex; justify-content: space-between; gap: 8px; padding: 7px 16px; border-top: 1px solid var(--line); font: 11.5px var(--font-mono); color: var(--text-muted); flex: none; }
@@ -53,7 +53,7 @@ body { background: var(--surface-ground); color: var(--text); font: 13px/1.45 va
 
 /* the runtimes key's peek */
 .popw { position: relative; }
-.key.rtk { position: relative; }
+.key.rtk { position: relative; border-radius: var(--radius-md); }   /* square, as the Panels and theme keys beside it */
 .rtpop { width: 400px; padding: 0; z-index: 60; }
 
 /* the script: tabs, the read-only line of an example, the editor; cells are drawn in Code.tsx */
@@ -189,3 +189,8 @@ kbd { font: 11px var(--font-mono); color: var(--text-muted); border: 1px solid v
 .es-error { color: var(--danger-text); }
 /* the console's screen fills its panel */
 .cons > .panel-body { display: flex; flex-direction: column; }
+
+/* the editor and the figure: the gutter between them is the kit's Split handle */
+.split.top { gap: 0; }
+.split.top.dragging .panel.side { transition: none; }
+.split.top.fig-hidden > .split-handle { pointer-events: none; }

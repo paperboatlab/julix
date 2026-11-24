@@ -3,7 +3,7 @@
 // Workspace card at the right; the Console below. Settings, help and About are Ctrl K commands; Ctrl K
 // is the only way to search. Everything shown comes from the app server; the files are the record.
 import {
-  AppMark, Dialog, HelpWindow, Icon, Key, Panel, PanelsKey, Search, Segmented, ThemePicker, Toasts, chordMatches, readStored, typing, useTheme, useToasts, writeStored,
+  AppMark, Dialog, HelpWindow, Icon, Key, Panel, PanelsKey, Search, Segmented, Spinner, Split, ThemePicker, Toasts, chordMatches, readStored, typing, useTheme, useToasts, writeStored,
   type Command, type HelpProvider, type MenuEntry, type PaneRect, type SearchItem, type Theme,
 } from "@paperboatlab/ui";
 import { EditorSettingsKey, useEditorSettings, type EditorPos } from "@paperboatlab/ui/editor";
@@ -44,6 +44,14 @@ function TypeIcon({ name, folder = false }: { name: string; folder?: boolean }) 
 }
 const NEW_SCRIPT = "# A Julia script. F5 runs it; Ctrl Enter runs the cell at the cursor (a cell starts at ##).\n\n## First cell\n";
 
+/** Seconds since a run started, ticking on its own so the whole page doesn't redraw. */
+function Elapsed({ since }: { since?: string }) {
+  const [, tick] = useState(0);
+  useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 100); return () => clearInterval(t); }, []);
+  const s = since ? Math.max(0, (Date.now() - Date.parse(since)) / 1000) : 0;
+  return <span className="mono">{s < 60 ? `${s.toFixed(1)} s` : `${Math.floor(s / 60)} min ${Math.round(s % 60)} s`}</span>;
+}
+
 export function App() {
   const [theme, setTheme] = useState<Theme>(() => readStored("paperboat.theme", isTheme) ?? "system");
   const appTheme = useTheme(theme);
@@ -63,10 +71,10 @@ export function App() {
   const [shown, setShown] = useState<FigureRef | null>(null);
   const [wtab, setWtab] = useState<"vars" | "figs">("vars");
   const [resetSeq, setResetSeq] = useState(0);
-  // the figure pane takes a share of the window (a figure needs room); ponytail: a drag splitter when asked
+  // the figure pane takes a share of the window (a figure needs room); the gutter to the editor sizes it
   const figWidth = () => Math.round(Math.min(900, Math.max(420, innerWidth * 0.36)));
-  const [figW, setFigW] = useState(figWidth);
-  useEffect(() => { const on = () => setFigW(figWidth()); addEventListener("resize", on); return () => removeEventListener("resize", on); }, []);
+  const [figW, setFigW] = useState(() => readStored("julix.figure", (v): v is number => typeof v === "number") ?? figWidth());
+  useEffect(() => writeStored("julix.figure", figW), [figW]);
   const [peekVersion, setPeekVersion] = useState(0);
   const [search, setSearch] = useState(false);
   const [ask, setAsk] = useState<Ask | null>(null);
@@ -116,6 +124,8 @@ export function App() {
   }), [reload, reloadFigures, load]);
 
   const running = runs.some((r) => r.state === "running" || r.state === "queued");
+  const now = runs.find((r) => r.state === "running");   // the run the session is on; queued ones wait behind it
+  const busy = now && now.kind !== "console" ? { path: now.source, from: now.line, to: now.line + now.code.split("\n").length - 1 } : undefined;
 
   const open = useCallback((p: string, side = false) => {
     setTabs((t) => (t.includes(p) ? t : side ? [...t, p] : [p, ...t].slice(0, 12)));
@@ -259,7 +269,7 @@ export function App() {
         <span className="well proj" title={folder?.root}><TypeIcon name="" folder />{folder?.name ?? "…"}</span>
         <span className="bend">
           {running
-            ? <Key busy onClick={() => api.interrupt().catch(fail)} title="Interrupt (Ctrl C in the console)">Stop</Key>
+            ? <Key busy onClick={() => api.interrupt().catch(fail)} title="Interrupt (Ctrl C in the console)"><Elapsed since={now?.started} /><Icon name="debug-stop" />Stop</Key>
             : <Key kind="primary" icon="play" disabled={!isJl} onClick={() => run("file")} title={isJl ? `Run ${base(current!)} (F5)` : "Open a .jl script to run it"}>Run{isJl && <span className="runwhat">{base(current!)}</span>}</Key>}
           <RuntimesKey running={running} starting={session === "starting"} version={peekVersion} onPackages={() => setDialog("packages")} />
           <PanelsKey panels={PANELS.map((p) => ({ id: p.side, label: p.name, keys: p.keys, shown: !hidden[p.side] }))} layout={LAYOUT} onToggle={(id) => toggle(id as Side)} />
@@ -280,13 +290,14 @@ export function App() {
         </Panel>
 
         <div className="mid">
-          <div className="top">
+          <Split className={`top${hidden.f ? " fig-hidden" : ""}`} sized="end" size={hidden.f ? 38 : figW} defaultSize={figWidth()} min={320} otherMin={320}
+            onSize={setFigW} onHidden={() => toggle("f", true)} label="Figure width">
             <section className="panel ed" aria-label="Script">
               <div className="ntabs">
                 <div className="tabs2" role="tablist">
                   {tabs.map((p) => (
                     <span key={p} role="tab" aria-selected={p === current} className={p === current ? "on" : ""} onClick={() => open(p)} onAuxClick={(e) => e.button === 1 && close(p)}>
-                      <TypeIcon name={p} />{base(p)}{p === current && draft !== null && !doc?.readOnly && <i className="dot" title="Saving" />}
+                      {busy?.path === p ? <Spinner size={12} label="Running" /> : <TypeIcon name={p} />}{base(p)}{p === current && draft !== null && !doc?.readOnly && <i className="dot" title="Saving" />}
                       <button type="button" className="tx" aria-label={`Close ${base(p)}`} onClick={(e) => { e.stopPropagation(); close(p); }}>×</button>
                     </span>
                   ))}
@@ -303,7 +314,7 @@ export function App() {
                 {doc && doc.path === current && (IMAGE.has(typeOf(doc.path))
                   ? <div className="empty"><p>An image: Julix edits scripts and text.</p></div>
                   : <Code key={`${doc.path}:${doc.readOnly}:${doc.v}`} path={doc.path} text={text} readOnly={doc.readOnly} onChange={setDraft}
-                      onPos={(p: EditorPos) => setCursor({ line: p.line, col: p.col })} settings={editor} appTheme={appTheme}
+                      onPos={(p: EditorPos) => setCursor({ line: p.line, col: p.col })} busy={busy?.path === doc.path ? busy : undefined} settings={editor} appTheme={appTheme}
                       session={session === "running" ? juliaSession : undefined}
                       run={{ cell: (c, l) => run("cell", c, l), line: (c, l) => run("line", c, l), file: () => run("file"), save: () => draft !== null && current && save(current, draft) }} />)}
               </div>
@@ -321,7 +332,7 @@ export function App() {
                 ? <FigurePane f={shownFig} label={`Figure ${shownFig.n} of ${base(shownFig.source)}`} resetSeq={resetSeq} />
                 : <div className="empty"><p>No figure yet. A JulixPlot figure appears here to pan, zoom and orbit; anything else your code shows as SVG or PNG appears as an image.</p></div>}</div>
             </Panel>
-          </div>
+          </Split>
 
           <Console runs={runs} running={running} hidden={hidden.b} onHidden={(h) => toggle("b", h)} onRun={runConsole}
             onFigure={(run, n) => { setShown({ run, n }); toggle("f", false); }} />
