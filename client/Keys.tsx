@@ -23,7 +23,7 @@ function Pop({ label, keyClass, keyTitle, keyBody, className, onOpen, children }
   );
 }
 
-export function RuntimesKey({ running, starting, version }: { running: boolean; starting: boolean; version: number }) {
+export function RuntimesKey({ running, starting, version, onPackages }: { running: boolean; starting: boolean; version: number; onPackages: () => void }) {
   const [peek, setPeek] = useState<Peek | null>(null);
   const [error, setError] = useState("");
   const [asked, setAsked] = useState(false);   // the daemon is asked once the peek has opened, then on every change
@@ -50,7 +50,7 @@ export function RuntimesKey({ running, starting, version }: { running: boolean; 
             )}
             {peek && !s && peek.julia && <div className="rt off"><span className="rlg">jl</span><div><b>Julia {peek.julia.version}</b><small>not started · starts with the first run</small></div><div /></div>}
             {peek && !peek.julia && <p className="rterr">paperboatd has no Julia runtime with a session mode.</p>}
-            <div className="pfoot"><span>Packages: <code>import Pkg; Pkg.add(…)</code> in the console.</span></div>
+            <div className="pfoot"><span>This folder is the Julia project.</span><Key size="sm" kind="quiet" icon="package" onClick={onPackages}>Packages…</Key></div>
     </Pop>
   );
 }

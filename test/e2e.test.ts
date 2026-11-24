@@ -33,6 +33,16 @@ test("a script runs in a Julia session lease: output, figures, variables, errors
     assert.match(fs.readFileSync(s.figureFile(b.id, 1), "utf8"), /^<svg/);
     assert.deepEqual(s.figures().filter((f) => f.run === b.id).map((f) => f.mime), ["image/svg+xml", "image/svg+xml"]);
 
+    // a value that shows itself as the Paperboat figure MIME (as JulixPlot's Figure does) is kept as its JSON,
+    // with no image rendered beside it (needs the runtime that passes the MIME: paperboat 3d6ed80)
+    const fig = await done(s.run("console", "console", `struct PBFig end
+Base.show(io::IO, ::MIME"application/vnd.paperboat.figure+json", ::PBFig) = print(io, "{\\"scene\\":{\\"id\\":\\"f\\"},\\"buffers\\":\\"\\"}")
+Base.show(io::IO, ::MIME"image/svg+xml", ::PBFig) = error("rendered")
+PBFig()`));
+    assert.equal(fig.state, "done", JSON.stringify(fig.outputs));
+    assert.deepEqual(fig.outputs, [{ type: "figure", n: 1, mime: "application/vnd.paperboat.figure+json" }]);
+    assert.deepEqual(JSON.parse(fs.readFileSync(s.figureFile(fig.id, 1), "utf8")), { scene: { id: "f" }, buffers: "" });
+
     // variables arrive after each run
     assert.ok(s.variables.some((v) => v.name === "x" && v.summary === "42"), JSON.stringify(s.variables));
     assert.ok(s.variables.some((v) => v.name === "K" && v.type === "Float64"), JSON.stringify(s.variables));

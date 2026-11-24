@@ -24,8 +24,11 @@ export type Figure = { run: string; n: number; mime: string; source: string; kin
 type Session = { lease: Lease; rt: Runtime; cwd?: string };
 
 const INTERRUPT_GRACE_MS = 3000;   // after an interrupt with no reply, the session restarts (paperboat docs/runtime.md)
-const IMAGES = ["image/svg+xml", "image/png"] as const;
-const EXT: Record<string, string> = { "image/svg+xml": "svg", "image/png": "png" };
+// A JulixPlot figure first (drawn by the page, interactive), then images; one file per figure.
+export const FIGURE = "application/vnd.paperboat.figure+json";
+const IMAGES = [FIGURE, "image/svg+xml", "image/png"] as const;
+const EXT: Record<string, string> = { [FIGURE]: "json", "image/svg+xml": "svg", "image/png": "png" };
+const MIME_OF: Record<string, string> = Object.fromEntries(Object.entries(EXT).map(([m, e]) => [e, m]));
 const OWNER = (f: Folder) => `julix:${f.root}`;
 
 /** Code from line `line` (1-based) keeps its line numbers in tracebacks: the lines above become blank. */
@@ -202,8 +205,8 @@ end;`;
       let meta: Run;
       try { meta = JSON.parse(fs.readFileSync(path.join(root, id, "run.json"), "utf8")); } catch { continue; }   // a run still writing, or damaged
       for (const f of fs.readdirSync(path.join(root, id))) {
-        const m = /^(\d+)\.(svg|png)$/.exec(f);
-        if (m) out.push({ run: id, n: Number(m[1]), mime: m[2] === "svg" ? "image/svg+xml" : "image/png", source: meta.source, kind: meta.kind, time: meta.started ?? "" });
+        const m = /^(\d+)\.(json|svg|png)$/.exec(f);
+        if (m) out.push({ run: id, n: Number(m[1]), mime: MIME_OF[m[2]], source: meta.source, kind: meta.kind, time: meta.started ?? "" });
       }
     }
     return out.sort((a, b) => (a.run === b.run ? a.n - b.n : a.run < b.run ? 1 : -1));
@@ -211,7 +214,7 @@ end;`;
 
   figureFile(run: string, n: number): string {
     if (!/^[\w-]+$/.test(run)) throw new Error("bad run");
-    for (const ext of ["svg", "png"]) { const p = path.join(this.figuresDir(run), `${n}.${ext}`); if (fs.existsSync(p)) return p; }
+    for (const ext of ["json", "svg", "png"]) { const p = path.join(this.figuresDir(run), `${n}.${ext}`); if (fs.existsSync(p)) return p; }
     throw new Error("no such figure");
   }
 

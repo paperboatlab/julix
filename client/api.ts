@@ -12,6 +12,7 @@ export type Run = {
   state: "queued" | "running" | "done" | "failed"; started?: string; ms?: number; outputs: Output[];
   runtime?: { name: string; version: string; backend: string };
 };
+export type Package = { name: string; version: string };
 export type Variable = { name: string; type: string; summary: string; size?: number };
 export type Figure = { run: string; n: number; mime: string; source: string; kind: Kind; time: string };
 export type Peek = {
@@ -48,6 +49,8 @@ export const api = {
   figures: () => call<Figure[]>("GET", "/api/figures"),
   removeFigures: (run: string) => call("POST", "/api/figures/remove", { run }),
   runtimes: () => call<Peek>("GET", "/api/runtimes"),
+  packages: () => call<{ packages: Package[] }>("GET", "/api/packages"),
+  changePackages: (op: "add" | "remove", name: string) => call<{ packages: Package[] }>("POST", "/api/packages", { op, name }),
   figure: (f: { run: string; n: number }) => `/api/figure?run=${q(f.run)}&n=${f.n}`,
 };
 

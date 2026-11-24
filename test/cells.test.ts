@@ -30,3 +30,14 @@ test("a traceback stops at the user's top-level scope, as Julia's REPL", () => {
   const tb = "Stacktrace:\n  [1] error(s::String)\n    @ Base ./error.jl:35\n  [2] top-level scope\n    @ console:1\n  [3] eval\n    @ ./boot.jl:430 [inlined]";
   assert.equal(ours(tb), "Stacktrace:\n  [1] error(s::String)\n    @ Base ./error.jl:35\n  [2] top-level scope\n    @ console:1");
 });
+
+test("package steps: the platform's recipe; network only to add; names checked", async () => {
+  const { recipe, parse } = await import("../server/packages.ts");
+  assert.deepEqual([recipe("add", "Plots").network, recipe("remove", "Plots").network, recipe("list").network], [true, false, false]);
+  assert.deepEqual([recipe("add", "Plots").writable, recipe("list").writable], [true, false]);
+  assert.match(recipe("add", "JulixPlot").code, /url="https:\/\/github.com\/paperboatlab\/JulixPlot.jl"/);
+  assert.match(recipe("add", "JulixPlot", true).code, /Pkg.develop\(path=joinpath\(ENV\["PAPERBOAT_PROJECT"\], ".julix", "JulixPlot.jl"\)\)/);
+  assert.throws(() => recipe("add", 'x"); run(`rm -rf /`'));
+  assert.deepEqual(parse("noise\nPKG Plots 1.40.0\nPKG JulixPlot 0.2.0\nJULIX-DONE\n"), { packages: [{ name: "JulixPlot", version: "0.2.0" }, { name: "Plots", version: "1.40.0" }], done: true });
+  assert.equal(parse("ERROR: …").done, false);
+});

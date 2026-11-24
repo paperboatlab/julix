@@ -14,7 +14,9 @@ import { cellAt, cells } from "./cells.ts";
 import { Code } from "./Code.tsx";
 import { Console } from "./Console.tsx";
 import { RuntimesKey } from "./Keys.tsx";
+import { Packages } from "./Packages.tsx";
 import { Workspace, type FigureRef } from "./Workspace.tsx";
+import { FIGURE, Figure as FigurePane } from "./figure/Figure.tsx";
 
 type Side = "l" | "f" | "b" | "r";
 const PANELS: { side: Side; name: string; keys: string }[] = [
@@ -61,10 +63,15 @@ export function App() {
   const [figures, setFigures] = useState<Figure[]>([]);
   const [shown, setShown] = useState<FigureRef | null>(null);
   const [wtab, setWtab] = useState<"vars" | "figs">("vars");
+  const [resetSeq, setResetSeq] = useState(0);
+  // the figure pane takes a share of the window (a figure needs room); ponytail: a drag splitter when asked
+  const figWidth = () => Math.round(Math.min(900, Math.max(420, innerWidth * 0.36)));
+  const [figW, setFigW] = useState(figWidth);
+  useEffect(() => { const on = () => setFigW(figWidth()); addEventListener("resize", on); return () => removeEventListener("resize", on); }, []);
   const [peekVersion, setPeekVersion] = useState(0);
   const [search, setSearch] = useState(false);
   const [ask, setAsk] = useState<Ask | null>(null);
-  const [dialog, setDialog] = useState<"settings" | "about" | null>(null);
+  const [dialog, setDialog] = useState<"settings" | "about" | "packages" | null>(null);
   const { toasts, show, dismiss } = useToasts();
   const fail = useCallback((e: unknown) => show({ title: "Couldn't do that", detail: String((e as Error).message ?? e), state: "failed" }), [show]);
   const currentRef = useRef(current);
@@ -224,7 +231,7 @@ export function App() {
     ...PANELS.map((p): SearchItem => ({ id: `p:${p.side}`, label: `${hidden[p.side] ? "Show" : "Hide"} ${p.name === "Figure" ? "the Figure" : p.name === "Console" ? "the Console" : p.name}`, shortcut: p.keys, group: "Commands", scope: "Commands", icon: "command", run: () => toggle(p.side) })),
     ...(["light", "dark", "system"] as Theme[]).map((t): SearchItem => ({ id: `t:${t}`, label: `Theme: ${t}`, group: "Commands", scope: "Commands", icon: `theme-${t}`, disabled: theme === t, why: "It is the theme now", run: () => setTheme(t) })),
     { id: "s:settings", label: "Settings", detail: "theme, packages", shortcut: "Ctrl ,", group: "Settings", scope: "Settings", icon: "a-settings", run: () => setDialog("settings") },
-    { id: "s:packages", label: "Settings: Julia packages", detail: "import Pkg; Pkg.add(…) in the console", group: "Settings", scope: "Settings", icon: "package", run: () => { toggle("b", false); show({ title: "Packages", detail: "Type import Pkg; Pkg.add(\"Name\") in the console; they install into the folder's Julia environment.", state: "done" }); } },
+    { id: "s:packages", label: "Julia packages…", detail: "add JulixPlot, Plots, DataFrames…", group: "Settings", scope: "Settings", icon: "package", run: () => setDialog("packages") },
     { id: "h:manual", label: "Julix manual", detail: "github.com/paperboatlab/julix", shortcut: "F1", group: "Help", scope: "Help", icon: "question", run: () => { window.open("https://github.com/paperboatlab/julix#readme", "_blank", "noopener"); } },
     ...files(tree.examples).map((p): SearchItem => ({ id: `h:${p}`, label: `Example: ${base(p)}`, group: "Help", scope: "Help", icon: "book", run: () => open(p) })),
     { id: "h:about", label: "About Julix", detail: "version, runtime, licence", group: "Help", scope: "Help", icon: "info", run: () => setDialog("about") },
@@ -246,7 +253,7 @@ export function App() {
           {running
             ? <Key busy onClick={() => api.interrupt().catch(fail)} title="Interrupt (Ctrl C in the console)">Stop</Key>
             : <Key kind="primary" icon="play" disabled={!isJl} onClick={() => run("file")} title={isJl ? `Run ${base(current!)} (F5)` : "Open a .jl script to run it"}>Run{isJl && <span className="runwhat">{base(current!)}</span>}</Key>}
-          <RuntimesKey running={running} starting={session === "starting"} version={peekVersion} />
+          <RuntimesKey running={running} starting={session === "starting"} version={peekVersion} onPackages={() => setDialog("packages")} />
           <PanelsKey panels={PANELS.map((p) => ({ id: p.side, label: p.name, keys: p.keys, shown: !hidden[p.side] }))} layout={LAYOUT} onToggle={(id) => toggle(id as Side)} />
           <span className="lsep" />
           <ThemePicker theme={theme} onChange={setTheme} />
@@ -297,12 +304,13 @@ export function App() {
               )}
             </section>
 
-            <Panel name={shownFig ? `Figure ${shownFig.n}` : "Figure"} count={shownFig ? base(shownFig.source) : undefined} side="right" hidden={hidden.f} onHidden={(h) => toggle("f", h)} icon="file-media" width={460} className="figp"
-              head={shownFig && <a className="key sm quiet" href={api.figure(shownFig)} download={`${base(shownFig.source).replace(/\.jl$/, "")}-figure-${shownFig.n}.${shownFig.mime === "image/png" ? "png" : "svg"}`} title="Save the figure">Export…</a>}>
-              {/* ponytail: an image until @paperboatlab/ui's plot components land (interactive figures with JulixPlot) */}
+            <Panel name={shownFig ? `Figure ${shownFig.n}` : "Figure"} count={shownFig ? base(shownFig.source) : undefined} side="right" hidden={hidden.f} onHidden={(h) => toggle("f", h)} icon="file-media" width={figW} className="figp"
+              head={shownFig && (shownFig.mime === FIGURE
+                ? <Key size="sm" kind="quiet" onClick={() => setResetSeq((n) => n + 1)} title="Back to the scripted view">Reset view</Key>
+                : <a className="key sm quiet" href={api.figure(shownFig)} download={`${base(shownFig.source).replace(/\.jl$/, "")}-figure-${shownFig.n}.${shownFig.mime === "image/png" ? "png" : "svg"}`} title="Save the figure">Export…</a>)}>
               <div className="fbody">{shownFig
-                ? <div className="screen"><img src={api.figure(shownFig)} alt={`Figure ${shownFig.n} of ${shownFig.source}`} /></div>
-                : <div className="empty"><p>No figure yet. What your code shows as SVG or PNG appears here: Plots.jl, CairoMakie, or the example 03-figures.jl.</p></div>}</div>
+                ? <FigurePane f={shownFig} label={`Figure ${shownFig.n} of ${base(shownFig.source)}`} resetSeq={resetSeq} />
+                : <div className="empty"><p>No figure yet. A JulixPlot figure appears here to pan, zoom and orbit; anything else your code shows as SVG or PNG appears as an image.</p></div>}</div>
             </Panel>
           </div>
 
@@ -322,7 +330,7 @@ export function App() {
         <Dialog title="Settings" onClose={() => setDialog(null)} actions={<Key onClick={() => setDialog(null)}>Done</Key>}>
           <div className="sett">
             <span>Theme</span><Segmented label="Theme" value={theme} onChange={setTheme} options={[{ value: "light", label: "Light" }, { value: "dark", label: "Dark" }, { value: "system", label: "System" }]} />
-            <span>Julia packages</span><span className="muted">In the console: <code>import Pkg; Pkg.add("Name")</code>. They install into this folder's environment.</span>
+            <span>Julia packages</span><span><Key size="sm" onClick={() => setDialog("packages")}>Packages…</Key></span>
           </div>
         </Dialog>
       )}
@@ -339,6 +347,7 @@ export function App() {
           </div>
         </Dialog>
       )}
+      {dialog === "packages" && <Packages onClose={() => setDialog(null)} onDone={(what) => show({ title: what, detail: "using it in the session picks it up", state: "done" })} />}
       <Toasts toasts={toasts} onDismiss={dismiss} />
     </div>
   );

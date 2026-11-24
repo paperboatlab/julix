@@ -31,8 +31,11 @@ flowchart LR
 - `server/session.ts`: `Sessions`: one Julia session lease for the folder, acquired on the first run.
   A run is a file, a cell, a line or a console expression; runs queue, run in their file's folder, keep
   their line numbers (`atLine`), stream output, and turn every SVG or PNG display into a figure in
-  `.julix/figures/<run>/`. Variables are asked after each run, before the run reports done. Interrupt
+  `.julix/figures/<run>/` (a JulixPlot figure as `<n>.json`: the Paperboat figure MIME, its scene and
+  buffers). Variables are asked after each run, before the run reports done. Interrupt
   goes through the daemon (SIGINT); no answer within 3 s restarts the session.
+- `server/packages.ts`: the folder's Julia packages the platform's way (the CLI's recipe): an exec lease
+  changes the project, with the network for an add only; `JULIXPLOT=<checkout>` develops a local JulixPlot.
 - `server/control.ts`, `server/runtime.ts`: the protocol clients, copied from Malachite.
 - `server/main.ts`: the HTTP server: the page from `dist/`, the JSON API, Server-Sent Events. The editor's
   `lint` and `complete` pass through `/api/session` as the runtime answers them; `/api/values` prints a
@@ -40,7 +43,13 @@ flowchart LR
 - `client/`: `App.tsx` (the window: bar, cards, dialogs, Ctrl K, the file menus), `Code.tsx` (the kit's
   Editor with Julix's cells and run keys), `cells.ts` (where cells start and end), `Console.tsx` (runs and
   the REPL line), `traceback.ts`, `Workspace.tsx` (Variables with the selected one plotted, Figures),
-  `Keys.tsx` (the runtimes key), `api.ts` (with the session the editor lints and completes through).
+  `Keys.tsx` (the runtimes key), `Packages.tsx` (the packages dialog), `api.ts` (with the session the
+  editor lints and completes through).
+- `client/figure/`: `Figure.tsx` (a figure file: a JulixPlot scene to FigureView, else its image),
+  `FigureView.tsx` and `scene.ts` (from legacy MX: the figure's grid; 2D axes on the kit's `Plot2D`,
+  colour bars, legends, TeX labels; 3D axes on the stage).
+- `client/stage/`: the 3D stage (three.js, orbit, view cube, axes; paperboat-shared-legacy's station
+  view). ponytail: here until it joins `@paperboatlab/ui` beside Simplicial's stage.
 - From `@paperboatlab/ui`: the editor, Julia's grammar, lint and completion (`/editor`), the file tree
   (`/files`), `Plot2D` and `Heatmap` (`/plot`), the Panels key, and the rest of the kit.
 
@@ -54,6 +63,6 @@ flowchart LR
    are read-only.
 4. **An error points at the user's line.** Code run from line n is sent with n − 1 blank lines before
    it and labelled with its file, so Julia's traceback names the file and line in the editor.
-5. **A figure is shown, never run.** Figures are served with a CSP that allows no script, and shown as
-   images.
+5. **A figure is data or an image, never a page.** A JulixPlot figure is JSON the page draws; any other
+   figure is served with a CSP that allows no script, and shown as an image.
 6. **Local only.** The server listens on 127.0.0.1 and answers only its own Host and Origin.

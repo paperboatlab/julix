@@ -4,6 +4,7 @@ import { Key, RemoveKey, Tabs } from "@paperboatlab/ui";
 import { Heatmap, Plot2D } from "@paperboatlab/ui/plot";
 import { useEffect, useMemo, useState } from "react";
 import { api, type Figure, type Variable } from "./api.ts";
+import { FIGURE } from "./figure/Figure.tsx";
 
 export type FigureRef = { run: string; n: number };
 const base = (p: string) => { const s = p.replace(/^@examples\//, ""); return s.slice(s.lastIndexOf("/") + 1); };
@@ -53,8 +54,8 @@ export function Workspace({ tab, onTab, variables, figures, shown, onShow, onCop
                 <RemoveKey label={`Close the figures of this run`} onClick={() => api.removeFigures(run).catch(() => {})} /></div>
               {fs.map((f) => (
                 <button key={f.n} type="button" className={`frow${shown?.run === run && shown.n === f.n ? " on" : ""}`} onClick={() => onShow({ run, n: f.n })}>
-                  <span className="fth"><img src={api.figure(f)} alt="" loading="lazy" /></span>
-                  <span><b>Figure {f.n}</b><small>{base(f.source)} · {f.mime === "image/png" ? "PNG" : "SVG"}</small></span>
+                  {f.mime === FIGURE ? <span className="fth scene">plot</span> : <span className="fth"><img src={api.figure(f)} alt="" loading="lazy" /></span>}
+                  <span><b>Figure {f.n}</b><small>{base(f.source)} · {f.mime === FIGURE ? "JulixPlot" : f.mime === "image/png" ? "PNG" : "SVG"}</small></span>
                 </button>
               ))}
             </div>

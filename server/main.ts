@@ -9,6 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Control, ControlError } from "./control.ts";
 import { Folder, FolderError } from "./folder.ts";
+import { PackageError, packages } from "./packages.ts";
 import { Sessions, type Kind } from "./session.ts";
 
 export const DEFAULT_PORT = 59220;   // paperboat/apps.toml
@@ -16,7 +17,7 @@ export const VERSION = "0.1.0";
 const DIST = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "dist");
 const TYPES: Record<string, string> = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".map": "application/json",
-  ".woff2": "font/woff2", ".woff": "font/woff", ".ttf": "font/ttf", ".png": "image/png", ".webp": "image/webp", ".svg": "image/svg+xml",
+  ".woff2": "font/woff2", ".woff": "font/woff", ".ttf": "font/ttf", ".png": "image/png", ".webp": "image/webp", ".svg": "image/svg+xml", ".json": "application/json",
 };
 const KINDS = new Set<Kind>(["file", "cell", "line", "console"]);
 
@@ -97,11 +98,20 @@ export function serve(dir: string, port = DEFAULT_PORT, control = new Control())
         }
         case "POST /api/figures/remove": { sessions.removeFigures(str("run")); return send(res, 200, {}); }
         case "GET /api/runtimes": return send(res, 200, await sessions.peek());
+        case "GET /api/packages": return send(res, 200, await packages(control, folder, "list"));
+        case "POST /api/packages": {   // add (the page has asked the user: the network opens for this step) or remove
+          const op = str("op");
+          if (op !== "add" && op !== "remove") throw new FolderError("op is add or remove");
+          const r = await packages(control, folder, op, str("name"));
+          emit({ type: "packages", packages: r.packages });
+          return send(res, 200, r);
+        }
         default: return send(res, 404, { error: `no ${req.method} ${url.pathname}` });
       }
     } catch (e) {
       if (e instanceof FolderError) return send(res, e.status, { error: e.message });
       if (e instanceof ControlError) return send(res, 503, { error: e.message });
+      if (e instanceof PackageError) return send(res, 422, { error: e.message });
       console.error(e);
       return send(res, 500, { error: String((e as Error).message ?? e) });
     }
