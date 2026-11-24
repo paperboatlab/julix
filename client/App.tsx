@@ -3,10 +3,10 @@
 // Workspace card at the right; the Console below. Settings, help and About are Ctrl K commands; Ctrl K
 // is the only way to search. Everything shown comes from the app server; the files are the record.
 import {
-  AppMark, Dialog, Icon, Key, Panel, PanelsKey, Search, Segmented, ThemePicker, Toasts, chordMatches, readStored, typing, useTheme, useToasts, writeStored,
-  type MenuEntry, type PaneRect, type SearchItem, type Theme,
+  AppMark, Dialog, HelpWindow, Icon, Key, Panel, PanelsKey, Search, Segmented, ThemePicker, Toasts, chordMatches, readStored, typing, useTheme, useToasts, writeStored,
+  type Command, type HelpProvider, type MenuEntry, type PaneRect, type SearchItem, type Theme,
 } from "@paperboatlab/ui";
-import { DEFAULT_EDITOR_SETTINGS, type EditorPos } from "@paperboatlab/ui/editor";
+import { EditorSettingsKey, useEditorSettings, type EditorPos } from "@paperboatlab/ui/editor";
 import { FileTree, fileIconFor, type FileActions, type FileEntry } from "@paperboatlab/ui/files";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, listen, session as juliaSession, type Entry, type Figure, type Run, type Variable } from "./api.ts";
@@ -47,8 +47,7 @@ const NEW_SCRIPT = "# A Julia script. F5 runs it; Ctrl Enter runs the cell at th
 export function App() {
   const [theme, setTheme] = useState<Theme>(() => readStored("paperboat.theme", isTheme) ?? "system");
   const appTheme = useTheme(theme);
-  // ponytail: the kit's defaults until @paperboatlab/ui exports its settings key and hook (useEditorSettings)
-  const editor = DEFAULT_EDITOR_SETTINGS;
+  const [editor, setEditor] = useEditorSettings(undefined, "julix.editor");   // ponytail: in localStorage until Julix keeps a settings file
   const [folder, setFolder] = useState<{ name: string; root: string; version: string } | null>(null);
   const [tree, setTree] = useState<{ files: Entry[]; examples: Entry[] }>({ files: [], examples: [] });
   const [tabs, setTabs] = useState<string[]>(() => readStored("julix.tabs", isList) ?? []);
@@ -71,7 +70,7 @@ export function App() {
   const [peekVersion, setPeekVersion] = useState(0);
   const [search, setSearch] = useState(false);
   const [ask, setAsk] = useState<Ask | null>(null);
-  const [dialog, setDialog] = useState<"settings" | "about" | "packages" | null>(null);
+  const [dialog, setDialog] = useState<"settings" | "about" | "packages" | "help" | null>(null);
   const { toasts, show, dismiss } = useToasts();
   const fail = useCallback((e: unknown) => show({ title: "Couldn't do that", detail: String((e as Error).message ?? e), state: "failed" }), [show]);
   const currentRef = useRef(current);
@@ -209,7 +208,7 @@ export function App() {
       if (mod && k === "j") { e.preventDefault(); toggle("b"); return; }
       if (mod && e.key === ",") { e.preventDefault(); setDialog("settings"); return; }
       if (e.key === "F5" && !e.defaultPrevented) { e.preventDefault(); run("file"); return; }
-      if (e.key === "F1") { e.preventDefault(); window.open("https://github.com/paperboatlab/julix#readme", "_blank", "noopener"); return; }
+      if (e.key === "F1") { e.preventDefault(); setDialog("help"); return; }
       if (typing(e.target)) return;
       if (mod && k === "n") { e.preventDefault(); newScript(); }
     };
@@ -232,11 +231,20 @@ export function App() {
     ...(["light", "dark", "system"] as Theme[]).map((t): SearchItem => ({ id: `t:${t}`, label: `Theme: ${t}`, group: "Commands", scope: "Commands", icon: `theme-${t}`, disabled: theme === t, why: "It is the theme now", run: () => setTheme(t) })),
     { id: "s:settings", label: "Settings", detail: "theme, packages", shortcut: "Ctrl ,", group: "Settings", scope: "Settings", icon: "a-settings", run: () => setDialog("settings") },
     { id: "s:packages", label: "Julia packages…", detail: "add JulixPlot, Plots, DataFrames…", group: "Settings", scope: "Settings", icon: "package", run: () => setDialog("packages") },
-    { id: "h:manual", label: "Julix manual", detail: "github.com/paperboatlab/julix", shortcut: "F1", group: "Help", scope: "Help", icon: "question", run: () => { window.open("https://github.com/paperboatlab/julix#readme", "_blank", "noopener"); } },
+    { id: "h:help", label: "Help: Julia's docs", detail: "search names, read docstrings", shortcut: "F1", group: "Help", scope: "Help", icon: "question", run: () => setDialog("help") },
+    { id: "h:manual", label: "Julix on GitHub", detail: "github.com/paperboatlab/julix", group: "Help", scope: "Help", icon: "link-external", run: () => { window.open("https://github.com/paperboatlab/julix#readme", "_blank", "noopener"); } },
     ...files(tree.examples).map((p): SearchItem => ({ id: `h:${p}`, label: `Example: ${base(p)}`, group: "Help", scope: "Help", icon: "book", run: () => open(p) })),
     { id: "h:about", label: "About Julix", detail: "version, runtime, licence", group: "Help", scope: "Help", icon: "info", run: () => setDialog("about") },
     // eslint-disable-next-line react-hooks/exhaustive-deps
   ], [tree, variables, figures, current, doc, running, hidden, theme, open, run, newScript, copyIn, toggle, fail, show]);
+
+  // Help (F1): Julia's own docs, from the session (the names it can reach, their docstrings); the shortcuts page
+  // is the kit's, from the keys Julix answers
+  const help = useMemo<HelpProvider>(() => ({
+    items: (q) => api.helpItems(q).catch(() => []),
+    page: (id) => api.helpPage(id).then((r) => ({ title: id, kind: "docstring", html: r.html || "<p>No docstring.</p>" }), () => null),
+  }), []);
+  const commands = useMemo<Command[]>(() => searchItems.filter((i) => i.shortcut).map((i) => ({ id: i.id, label: i.label, menu: "view", group: i.group, shortcut: i.shortcut, run: i.run })), [searchItems]);
 
   const isJl = !!current && typeOf(current) === "jl";
   const at = isJl ? cellAt(text, cursor.line) : null, nCells = isJl ? cells(text).length : 0;
@@ -284,6 +292,7 @@ export function App() {
                   ))}
                 </div>
                 {isJl && <Key size="sm" kind="quiet" icon="play" onClick={runCellAtCursor} title="Run the cell at the cursor (Ctrl Enter)">Run cell</Key>}
+                {doc && <EditorSettingsKey settings={editor} onSettings={setEditor} lintNote="Julia's parser, once the session runs" />}
               </div>
               {doc?.readOnly && (
                 <div className="ro">An example: read-only. Run it as it is, or <button type="button" className="lnk" onClick={() => copyIn(doc.path)}>copy it to your folder</button> to change it.</div>
@@ -319,7 +328,7 @@ export function App() {
         </div>
 
         <Panel name="Workspace" count={julia ? `julia ${julia.version}` : session === "starting" ? "starting…" : ""} side="right" hidden={hidden.r} onHidden={(h) => toggle("r", h)} icon="a-variables" width={300}>
-          <Workspace tab={wtab} onTab={setWtab} variables={variables} figures={figures} shown={shown} onCopy={copy}
+          <Workspace tab={wtab} onTab={setWtab} variables={variables} figures={figures} shown={shown} onCopy={copy} onError={fail}
             onShow={(f) => { setShown(f); toggle("f", false); }} />
         </Panel>
       </main>
@@ -334,6 +343,7 @@ export function App() {
           </div>
         </Dialog>
       )}
+      {dialog === "help" && <HelpWindow app="Julix" provider={help} commands={commands} onClose={() => setDialog(null)} />}
       {dialog === "about" && (
         <Dialog title="About Julix" onClose={() => setDialog(null)} actions={<Key onClick={() => setDialog(null)}>Close</Key>}>
           <div className="about">

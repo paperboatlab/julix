@@ -38,8 +38,9 @@ flowchart LR
   changes the project, with the network for an add only; `JULIXPLOT=<checkout>` develops a local JulixPlot.
 - `server/control.ts`, `server/runtime.ts`: the protocol clients, copied from Malachite.
 - `server/main.ts`: the HTTP server: the page from `dist/`, the JSON API, Server-Sent Events. The editor's
-  `lint` and `complete` pass through `/api/session` as the runtime answers them; `/api/values` prints a
-  variable's numbers for the plot (queued with runs, `ans` untouched).
+  `lint` and `complete` pass through `/api/session` as the runtime answers them. Julix's own questions
+  (a variable's numbers for the plot and the variable editor, setting them, Help's names and docstrings)
+  are quiet evals: queued with runs, printed not returned, so `ans` and the console stay the user's.
 - `client/`: `App.tsx` (the window: bar, cards, dialogs, Ctrl K, the file menus), `Code.tsx` (the kit's
   Editor with Julix's cells and run keys), `cells.ts` (where cells start and end), `Console.tsx` (runs and
   the REPL line), `traceback.ts`, `Workspace.tsx` (Variables with the selected one plotted, Figures),
@@ -50,8 +51,9 @@ flowchart LR
   colour bars, legends, TeX labels; 3D axes on the stage).
 - `client/stage/`: the 3D stage (three.js, orbit, view cube, axes; paperboat-shared-legacy's station
   view). ponytail: here until it joins `@paperboatlab/ui` beside Simplicial's stage.
-- From `@paperboatlab/ui`: the editor, Julia's grammar, lint and completion (`/editor`), the file tree
-  (`/files`), `Plot2D` and `Heatmap` (`/plot`), the Panels key, and the rest of the kit.
+- From `@paperboatlab/ui`: the editor with its settings key, Julia's grammar, lint and completion
+  (`/editor`), the file tree (`/files`), `Plot2D`, `Heatmap`, `Colorbar`, `TexText` (`/plot`), the package
+  manager (`/packages`), `HelpWindow` (F1), `VariableEditor`, the Panels key, and the rest of the kit.
 
 ## 3. Invariants
 

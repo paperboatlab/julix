@@ -64,8 +64,20 @@ PBFig()`));
     await done(s.run("console", "console", "M = [1.0 2; 3 4]; ans_before = 7"));
     assert.deepEqual(await s.values("M"), { kind: "matrix", rows: [[1, 2], [3, 4]] });
     assert.deepEqual(await s.values("h").then((v) => v && v.kind === "vector" && v.values.length), 200);
-    assert.equal(await s.values("K"), null);   // a scalar has nothing to plot
+    assert.deepEqual(await s.values("K"), { kind: "scalar", value: 4.97 });
     assert.equal(await s.values("nope"), null);   // only a name the session listed
+
+    // the variable editor sets the same name, keeping its element type
+    await s.setValues("M", [[1, 2], [3, 40]]);
+    assert.deepEqual(await s.values("M"), { kind: "matrix", rows: [[1, 2], [3, 40]] });
+    await done(s.run("console", "console", "Mi = [1 2; 3 4];"));
+    await s.setValues("Mi", [[5, 6], [7, 8]]);
+    assert.equal(s.variables.find((v) => v.name === "Mi")?.type, "Matrix{Int64}");
+    await assert.rejects(s.setValues("nope", 1));
+
+    // Help: names the session reaches, and a docstring as HTML
+    assert.ok((await s.helpItems("argmin")).some((i) => i.id === "Base.argmin" && i.kind === "function"));
+    assert.match(await s.helpPage("Base.argmin"), /<pre><code>argmin/);
   } finally {
     s.close();
   }

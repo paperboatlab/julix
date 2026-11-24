@@ -89,6 +89,15 @@ export function serve(dir: string, port = DEFAULT_PORT, control = new Control())
           return send(res, 200, { result: await sessions.ask(op, body.args && typeof body.args === "object" ? body.args : {}) });
         }
         case "GET /api/values": return send(res, 200, await sessions.values(q("name")));
+        case "PUT /api/values": {   // the variable editor: the same name, new numbers
+          const v = body.value;
+          const ok = (x: unknown) => typeof x === "number" || x === null;   // JSON has no Inf or NaN: null stands for NaN
+          if (!(ok(v) || (Array.isArray(v) && v.every((r) => ok(r) || (Array.isArray(r) && r.every(ok)))))) throw new FolderError("value is a number, a list or a list of rows");
+          await sessions.setValues(str("name"), JSON.parse(JSON.stringify(v), (_k, x) => (x === null ? NaN : x)));
+          return send(res, 200, {});
+        }
+        case "GET /api/help": return send(res, 200, await sessions.helpItems(url.searchParams.get("q") ?? ""));
+        case "GET /api/help/page": return send(res, 200, { html: await sessions.helpPage(q("id")) });
         case "GET /api/figures": return send(res, 200, sessions.figures());
         case "GET /api/figure": {
           const p = sessions.figureFile(q("run"), Number(q("n")));

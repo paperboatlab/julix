@@ -22,6 +22,9 @@ export type Run = {
 export type Variable = { name: string; type: string; summary: string; size?: number };
 export type Figure = { run: string; n: number; mime: string; source: string; kind: Kind; time: string };
 type Session = { lease: Lease; rt: Runtime; cwd?: string };
+export type Values = { kind: "scalar"; value: number } | { kind: "vector"; values: number[] } | { kind: "matrix"; rows: number[][] };
+/** A Julia string literal: JSON's escapes, and `$` taken literally. */
+const jl = (s: string) => JSON.stringify(s).replaceAll("$", "\\$");
 
 const INTERRUPT_GRACE_MS = 3000;   // after an interrupt with no reply, the session restarts (paperboat docs/runtime.md)
 // A JulixPlot figure first (drawn by the page, interactive), then images; one file per figure.
@@ -165,35 +168,83 @@ export class Sessions {
     return s ? s.rt.request(op, args) : null;
   }
 
-  /** A variable's numbers for the Workspace plot: a real vector (up to 100 000) or matrix (up to 400 × 400).
-   *  Printed, not returned, and the code ends with `;`, so the user's `ans` stays theirs. Queued with runs. */
-  values(name: string): Promise<{ kind: "vector"; values: number[] } | { kind: "matrix"; rows: number[][] } | null> {
-    if (!this.variables.some((v) => v.name === name)) return Promise.resolve(null);   // only a name the session listed
-    const v = `getfield(@__MODULE__, Symbol(${JSON.stringify(name).replaceAll("$", "\\$")}))`;
-    const code = `let v = ${v}
-  if v isa AbstractVector{<:Real} && length(v) <= 100_000
+  /** Julix's own question to the session: what `code` prints. Queued with runs; the code ends with `;` and
+   *  prints rather than returns, so the user's `ans` stays theirs, and nothing reaches the console.
+   *  `start`: start Julia for it (Help does; the Workspace plot only reads a session that is up). */
+  private quiet(code: string, label: string, start = false): Promise<string> {
+    const out = this.queue.then(async () => {
+      const s = start ? await this.open() : await this.session?.catch(() => undefined);
+      if (!s) return "";
+      let text = "";
+      await s.rt.request("eval", { code, cell: `julix: ${label}` }, (n) => { if (n.type === "stream") text += n.text; });
+      return text;
+    });
+    this.queue = out.catch(() => {});
+    return out;
+  }
+
+  private known(name: string) { return this.variables.some((v) => v.name === name); }   // only a name the session listed
+  private ref = (name: string) => `getfield(@__MODULE__, Symbol(${jl(name)}))`;
+
+  /** A variable's numbers (the Workspace plot, the variable editor): a real scalar, vector (up to 100 000)
+   *  or matrix (up to 400 × 400); null for anything else. */
+  async values(name: string): Promise<Values | null> {
+    if (!this.known(name)) return null;
+    const text = await this.quiet(`let v = ${this.ref(name)}
+  if v isa Real
+    print("s", Float64(v))
+  elseif v isa AbstractVector{<:Real} && length(v) <= 100_000
     print("v", join(Float64.(v), ","))
   elseif v isa AbstractMatrix{<:Real} && all(<=(400), size(v))
     print("m", size(v, 2), ";", join(Float64.(vec(permutedims(v))), ","))
   end
-end;`;
-    const out = this.queue.then(async () => {
-      const s = await this.session?.catch(() => undefined);
-      if (!s) return "";
-      let text = "";
-      await s.rt.request("eval", { code, cell: "julix: workspace plot" }, (n) => { if (n.type === "stream") text += n.text; }).catch(() => {});
-      return text;
-    });
-    this.queue = out.catch(() => {});
-    const num = (s: string) => (s === "Inf" ? Infinity : s === "-Inf" ? -Infinity : Number(s));   // NaN reads as NaN
-    return out.then((text) => {
-      if (text.startsWith("v")) return { kind: "vector", values: text.length > 1 ? text.slice(1).split(",").map(num) : [] };
-      const m = /^m(\d+);(.*)$/s.exec(text);
-      if (!m) return null;
-      const cols = Number(m[1]), all = m[2] ? m[2].split(",").map(num) : [], rows: number[][] = [];
-      for (let i = 0; i < all.length; i += cols) rows.push(all.slice(i, i + cols));
-      return { kind: "matrix", rows };
-    });
+end;`, "workspace", false).catch(() => "");
+    const num = (x: string) => (x === "Inf" ? Infinity : x === "-Inf" ? -Infinity : Number(x));   // NaN reads as NaN
+    if (text.startsWith("s")) return { kind: "scalar", value: num(text.slice(1)) };
+    if (text.startsWith("v")) return { kind: "vector", values: text.length > 1 ? text.slice(1).split(",").map(num) : [] };
+    const m = /^m(\d+);(.*)$/s.exec(text);
+    if (!m) return null;
+    const cols = Number(m[1]), all = m[2] ? m[2].split(",").map(num) : [], rows: number[][] = [];
+    for (let i = 0; i < all.length; i += cols) rows.push(all.slice(i, i + cols));
+    return { kind: "matrix", rows };
+  }
+
+  /** The variable editor's change: the same name, the new numbers, its element type kept (Int stays Int). */
+  async setValues(name: string, value: number | number[] | number[][]): Promise<void> {
+    if (!this.known(name)) throw new Error(`${name} isn't a variable of the session`);
+    const ints = /^(Int|Vector\{Int|Matrix\{Int|Array\{Int)/.test(this.variables.find((v) => v.name === name)!.type);
+    const lit = (x: number) => { if (!Number.isFinite(x)) return x !== x ? "NaN" : x > 0 ? "Inf" : "-Inf"; return ints ? String(Math.round(x)) : String(x).includes(".") || /e/i.test(String(x)) ? String(x) : `${x}.0`; };
+    const T = ints ? "Int" : "Float64";
+    const code = typeof value === "number" ? lit(value)
+      : Array.isArray(value[0]) ? `${T}[${(value as number[][]).map((r) => r.map(lit).join(" ")).join("; ")}]`
+      : `${T}[${(value as number[]).map(lit).join(", ")}]`;
+    await this.quiet(`Core.eval(@__MODULE__, :(${name} = ${code}));`, "variable editor", false);
+    await this.refreshVariables();
+  }
+
+  /** Help (F1): names that match in the session and the modules it loaded, and a name's docstring as HTML. */
+  async helpItems(query: string): Promise<{ id: string; title: string; kind: string; summary: string }[]> {
+    const text = await this.quiet(`let q = lowercase(${jl(query)}), n = 0, mods = unique!([@__MODULE__, Base, Core, values(Base.loaded_modules)...])
+  hits = Tuple{Int, String, String, String}[]
+  for m in mods, s in names(m)
+    t = string(s)
+    (occursin(q, lowercase(t)) && isdefined(m, s) && !startswith(t, "#")) || continue
+    v = getfield(m, s)
+    kind = v isa Module ? "module" : v isa Function ? "function" : v isa Type ? "type" : "value"
+    push!(hits, (startswith(lowercase(t), q) ? (length(t) == length(q) ? 0 : 1) : 2, string(nameof(m)), t, kind))
+  end
+  for (_, m, t, kind) in first(sort!(unique!(hits)), 60)
+    println(m, "\\t", t, "\\t", kind)
+  end
+end;`, "help", true);
+    return text.split("\n").filter(Boolean).map((l) => { const [m, t, kind] = l.split("\t"); return { id: `${m}.${t}`, title: t, kind, summary: m }; });
+  }
+
+  async helpPage(id: string): Promise<string> {
+    const dot = id.lastIndexOf("."), mod = id.slice(0, dot), name = id.slice(dot + 1);
+    return this.quiet(`let mods = unique!([@__MODULE__, Base, Core, values(Base.loaded_modules)...]), i = findfirst(m -> string(nameof(m)) == ${jl(mod)}, mods)
+  i === nothing || print(sprint(show, MIME"text/html"(), Base.Docs.doc(Base.Docs.Binding(mods[i], Symbol(${jl(name)})))))
+end;`, "help", true);
   }
 
   /** Every figure kept, newest run first. */

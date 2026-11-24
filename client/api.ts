@@ -12,6 +12,7 @@ export type Run = {
   state: "queued" | "running" | "done" | "failed"; started?: string; ms?: number; outputs: Output[];
   runtime?: { name: string; version: string; backend: string };
 };
+export type Values = { kind: "scalar"; value: number } | { kind: "vector"; values: number[] } | { kind: "matrix"; rows: number[][] };
 export type Package = { name: string; version: string };
 export type Variable = { name: string; type: string; summary: string; size?: number };
 export type Figure = { run: string; n: number; mime: string; source: string; kind: Kind; time: string };
@@ -45,7 +46,10 @@ export const api = {
   restart: () => call("POST", "/api/restart", {}),
   variables: () => call<Variable[]>("GET", "/api/variables"),
   runs: () => call<Run[]>("GET", "/api/runs"),
-  values: (name: string) => call<{ kind: "vector"; values: number[] } | { kind: "matrix"; rows: number[][] } | null>("GET", `/api/values?name=${q(name)}`),
+  values: (name: string) => call<Values | null>("GET", `/api/values?name=${q(name)}`),
+  setValues: (name: string, value: number | number[] | number[][]) => call("PUT", "/api/values", { name, value }),
+  helpItems: (query: string) => call<{ id: string; title: string; kind: string; summary: string }[]>("GET", `/api/help?q=${q(query)}`),
+  helpPage: (id: string) => call<{ html: string }>("GET", `/api/help/page?id=${q(id)}`),
   figures: () => call<Figure[]>("GET", "/api/figures"),
   removeFigures: (run: string) => call("POST", "/api/figures/remove", { run }),
   runtimes: () => call<Peek>("GET", "/api/runtimes"),

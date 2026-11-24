@@ -1,6 +1,6 @@
 // The Workspace card: the session's variables (filtered by name), and every figure kept, by run. The
 // Debug tab waits for the runtime's debug ops (plans/2026-11-24_22-30_julix_v0_1.md).
-import { Key, RemoveKey, Tabs } from "@paperboatlab/ui";
+import { Key, RemoveKey, Tabs, VariableEditor, type ValueGridValue } from "@paperboatlab/ui";
 import { Heatmap, Plot2D } from "@paperboatlab/ui/plot";
 import { useEffect, useMemo, useState } from "react";
 import { api, type Figure, type Variable } from "./api.ts";
@@ -13,9 +13,9 @@ const time = (iso: string) => (iso ? new Date(iso).toTimeString().slice(0, 5) : 
 /** What a type is, briefly: `Matrix{Float64}` stays, a long parametric type keeps its head. */
 const short = (t: string) => (t.length > 28 ? `${t.slice(0, t.indexOf("{") > 0 ? t.indexOf("{") : 26)}{…}` : t);
 
-export function Workspace({ tab, onTab, variables, figures, shown, onShow, onCopy }: {
+export function Workspace({ tab, onTab, variables, figures, shown, onShow, onCopy, onError }: {
   tab: "vars" | "figs"; onTab: (t: "vars" | "figs") => void; variables: Variable[]; figures: Figure[];
-  shown: FigureRef | null; onShow: (f: FigureRef) => void; onCopy: (text: string, what: string) => void;
+  shown: FigureRef | null; onShow: (f: FigureRef) => void; onCopy: (text: string, what: string) => void; onError: (e: unknown) => void;
 }) {
   const [filter, setFilter] = useState("");
   const vars = useMemo(() => variables.filter((v) => v.name.toLowerCase().includes(filter.toLowerCase())), [variables, filter]);
@@ -25,6 +25,9 @@ export function Workspace({ tab, onTab, variables, figures, shown, onShow, onCop
     return [...m.entries()];
   }, [figures]);
   const [sel, setSel] = useState<string | null>(null);
+  // the variable editor (the kit's): numbers as a table that edits the session's variable; anything else as text
+  const [editing, setEditing] = useState<{ v: Variable; value: ValueGridValue | string } | null>(null);
+  const edit = (v: Variable) => api.values(v.name).then((r) => setEditing({ v, value: !r ? v.summary : r.kind === "scalar" ? r.value : r.kind === "vector" ? r.values : r.rows }), () => setEditing({ v, value: v.summary }));
 
   return (
     <>
@@ -35,8 +38,8 @@ export function Workspace({ tab, onTab, variables, figures, shown, onShow, onCop
           <div className="scroll">
             {variables.length === 0 && <p className="none">No variables yet. Run a script (F5) or type in the console; what you define shows here.</p>}
             {vars.map((v) => (
-              <button key={v.name} type="button" className={`vrow${sel === v.name ? " on" : ""}`} title={`${v.name}::${v.type}\n${v.summary}\n\nDouble-click copies the name`}
-                onClick={() => setSel(v.name)} onDoubleClick={() => onCopy(v.name, "Name")}>
+              <button key={v.name} type="button" className={`vrow${sel === v.name ? " on" : ""}`} title={`${v.name}::${v.type}\n${v.summary}\n\nDouble-click opens it`}
+                onClick={() => setSel(v.name)} onDoubleClick={() => edit(v)} onKeyDown={(e) => e.key === "Enter" && edit(v)}>
                 <span className="vn"><b>{v.name}</b><small>{short(v.type)}{v.size !== undefined && !/^\d/.test(v.summary) ? ` · ${v.size}` : ""}</small></span>
                 <span className="vv">{v.summary}</span>
               </button>
@@ -62,6 +65,9 @@ export function Workspace({ tab, onTab, variables, figures, shown, onShow, onCop
           ))}
         </div>
       )}
+      {editing && <VariableEditor name={editing.v.name} type={editing.v.type} value={editing.value} tags={[editing.v.type, typeof editing.value === "string" ? "read-only" : "edits the session"]}
+        onChange={(value) => { setEditing({ ...editing, value }); api.setValues(editing.v.name, value as number | number[] | number[][]).catch(onError); }}
+        onClose={() => setEditing(null)} />}
     </>
   );
 }
