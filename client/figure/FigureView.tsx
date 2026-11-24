@@ -3,7 +3,7 @@
 // linked axes, twinx) and @paperboat/shared/station SceneView (OrbitControls, CAD viewCube,
 // home reset, Persp/Iso, 3D grids & surface wireframes) while emitting ViewState for export.
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
-import { Colorbar, formatCoord, Plot2D, TexText, type PlotViewLimits, type PlotViewState } from "@paperboatlab/ui/plot";
+import { Colorbar, formatCoord, paperClass, Plot2D, TexText, type PlotViewLimits, type PlotViewState } from "@paperboatlab/ui/plot";
 import { SceneView, type SceneCameraState, type ScenePlotPick } from "../stage/SceneView.tsx";
 
 /** One axis's view as the user left it (legacy kernel protocol `ViewAxisState`): 2D limits, or a 3D camera. */
@@ -615,7 +615,7 @@ export function FigureView({
 
   return (
     <div
-      className="figure-interactive-stage"
+      className={`figure-interactive-stage ${paperClass(paperBg)}`}
       style={{ background: paperBg }}
     >
       {renderGrid(scene.layout, figureKey)}
