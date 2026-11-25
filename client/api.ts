@@ -15,7 +15,7 @@ export type Run = {
 export type Values = { kind: "scalar"; value: number } | { kind: "vector"; values: number[] } | { kind: "matrix"; rows: number[][] };
 export type Package = { name: string; version: string };
 export type Variable = { name: string; type: string; summary: string; size?: number };
-export type Figure = { run: string; n: number; mime: string; source: string; kind: Kind; time: string };
+export type Figure = { run: string; n: number; mime: string; source: string; kind: Kind; time: string; thumb?: boolean };
 export type Peek = {
   sessions: { id: string; backend: string; state: string; uptime_s?: number; idle_s?: number; stats: { cpu_percent: number; memory_bytes: number } | null;
     running: { source: string; kind: Kind; line: number; since?: string } | null }[];
@@ -51,11 +51,13 @@ export const api = {
   helpItems: (query: string) => call<{ id: string; title: string; kind: string; summary: string }[]>("GET", `/api/help?q=${q(query)}`),
   helpPage: (id: string) => call<{ html: string }>("GET", `/api/help/page?id=${q(id)}`),
   figures: () => call<Figure[]>("GET", "/api/figures"),
+  saveThumb: (run: string, n: number, png: string) => call("POST", "/api/figure/thumb", { run, n, png }),
   removeFigures: (run: string) => call("POST", "/api/figures/remove", { run }),
   runtimes: () => call<Peek>("GET", "/api/runtimes"),
   packages: () => call<{ packages: Package[] }>("GET", "/api/packages"),
   changePackages: (op: "add" | "remove", name: string) => call<{ packages: Package[]; log: string }>("POST", "/api/packages", { op, name }),
   figure: (f: { run: string; n: number }) => `/api/figure?run=${q(f.run)}&n=${f.n}`,
+  thumb: (f: { run: string; n: number }) => `/api/figure?run=${q(f.run)}&n=${f.n}&thumb`,
 };
 
 /** Server-Sent Events: files, runs, variables, the session. Reconnects by itself (EventSource does). */

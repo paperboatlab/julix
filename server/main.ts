@@ -100,11 +100,12 @@ export function serve(dir: string, port = DEFAULT_PORT, control = new Control())
         case "GET /api/help/page": return send(res, 200, { html: await sessions.helpPage(q("id")) });
         case "GET /api/figures": return send(res, 200, sessions.figures());
         case "GET /api/figure": {
-          const p = sessions.figureFile(q("run"), Number(q("n")));
+          const p = sessions.figureFile(q("run"), Number(q("n")), url.searchParams.has("thumb"));
           // a figure is the code's output: shown as an image, never run as a page (an SVG can hold script)
           res.writeHead(200, { "content-type": TYPES[path.extname(p)], "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:", "x-content-type-options": "nosniff", "cache-control": "no-store" });
           return fs.createReadStream(p).pipe(res);
         }
+        case "POST /api/figure/thumb": { sessions.saveThumb(str("run"), Number(body.n), str("png")); emit({ type: "figures" }); return send(res, 200, {}); }
         case "POST /api/figures/remove": { sessions.removeFigures(str("run")); return send(res, 200, {}); }
         case "GET /api/runtimes": return send(res, 200, await sessions.peek());
         case "GET /api/packages": return send(res, 200, await packages(control, folder, "list"));

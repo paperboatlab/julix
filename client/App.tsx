@@ -120,6 +120,7 @@ export function App() {
         if (figs.length) { reloadFigures(); setShown({ run: r.id, n: (figs.at(-1) as { n: number }).n }); setHidden((h) => (h.f ? { ...h, f: false } : h)); }
       }
     } else if (e.type === "variables") setVariables(e.variables);
+    else if (e.type === "figures") reloadFigures();
     else if (e.type === "session") { setSession(e.state); setPeekVersion((v) => v + 1); }
   }), [reload, reloadFigures, load]);
 
