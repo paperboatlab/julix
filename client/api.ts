@@ -36,6 +36,7 @@ async function call<T>(method: string, url: string, body?: unknown): Promise<T> 
 const q = encodeURIComponent;
 
 export const api = {
+  paperboat: () => call<{ version: string | null }>("GET", "/api/paperboat"),
   folder: () => call<{ name: string; root: string; version: string; session: "stopped" | "starting" | "running" }>("GET", "/api/folder"),
   tree: () => call<{ files: Entry[]; examples: Entry[] }>("GET", "/api/tree"),
   file: (p: string) => call<{ path: string; text: string; readOnly: boolean }>("GET", `/api/file?path=${q(p)}`),

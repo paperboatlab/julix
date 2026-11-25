@@ -122,9 +122,7 @@ kbd { font: 11px var(--font-mono); color: var(--text-muted); border: 1px solid v
 .well.ask em { font: normal 11px var(--font-sans); color: var(--text-muted); }
 .sett { display: grid; grid-template-columns: 120px 1fr; gap: 14px 16px; align-items: center; min-width: 440px; }
 .sett > span:nth-child(odd) { color: var(--text-muted); }
-.sett code, .about code { font: 12px var(--font-mono); }
-.about { display: flex; gap: 20px; align-items: flex-start; }
-.about dl { display: grid; grid-template-columns: 70px 1fr; gap: 6px 12px; margin: 0; } .about dt { color: var(--text-muted); } .about dd { margin: 0; }
+.sett code { font: 12px var(--font-mono); }
 
 /* the kit's file trees: the workspace, then the examples under their own head */
 .fi { display: inline-flex; flex: none; }
