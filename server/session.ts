@@ -21,7 +21,7 @@ export type Run = {
   runtime?: { name: string; version: string; backend: string };
 };
 export type Variable = { name: string; type: string; summary: string; size?: number };
-export type Figure = { run: string; n: number; mime: string; source: string; kind: Kind; time: string };
+export type Figure = { run: string; n: number; mime: string; source: string; kind: Kind; time: string; thumb?: boolean };
 type Session = { lease: Lease; rt: Runtime; cwd?: string };
 export type Values = { kind: "scalar"; value: number } | { kind: "vector"; values: number[] } | { kind: "matrix"; rows: number[][] };
 /** A Julia string literal: JSON's escapes, and `$` taken literally. */
@@ -59,6 +59,8 @@ export class Sessions {
 
   private folder: Folder;
   private control: Control;
+  /** A lease still starting: its runtime ending rejects the wait for its socket (no two-minute freeze). */
+  private starting = new Map<string, (e: Error) => void>();
   private emit: (e: Record<string, unknown>) => void;
 
   constructor(folder: Folder, control: Control, emit: (e: Record<string, unknown>) => void) {
@@ -67,6 +69,7 @@ export class Sessions {
     this.emit = emit;
     control.onEvent = (e) => {
       this.emit({ type: "runtime", event: e });
+      if (e.event === "runtime.exited" || e.event === "runtime.failed") this.starting.get(String(e.lease))?.(new Error(`Julia stopped while starting${e.error ? `: ${e.error}` : ""}`));
       if ((e.event === "runtime.exited" || e.event === "runtime.failed") && this.session)
         this.session.then((s) => { if (s.lease.id === e.lease || s.lease.id === (e as any).id) this.drop(); }, () => {});
     };
@@ -78,9 +81,16 @@ export class Sessions {
       this.set("starting");
       // JulixPlot comes with Julix: added to the folder's project before the first session, once
       if (!hasJulixPlot(this.folder.root)) this.emit({ type: "packages", packages: (await packages(this.control, this.folder, "add", "JulixPlot")).packages });
-      const lease = await this.control.call<Lease>("acquire", { runtime: "julia", mode: "session", project: this.folder.root, owner: OWNER(this.folder) });
-      if (lease.state === "failed") throw new Error(lease.error ?? "Julia failed to start");
-      const rt = await Runtime.connect(path.join(lease.ipc, "runtime.sock"), 120_000);
+      // ponytail: one retry; a Julia that ends while starting (seen once, exit 0, no output) usually starts the second time
+      const start = async (): Promise<{ lease: Lease; rt: Runtime }> => {
+        const lease = await this.control.call<Lease>("acquire", { runtime: "julia", mode: "session", project: this.folder.root, owner: OWNER(this.folder) });
+        if (lease.state === "failed") throw new Error(lease.error ?? "Julia failed to start");
+        const ended = new Promise<never>((_, reject) => this.starting.set(lease.id, reject));
+        try { return { lease, rt: await Promise.race([Runtime.connect(path.join(lease.ipc, "runtime.sock"), 120_000), ended]) }; }
+        catch (e) { this.control.call("release", { lease: lease.id }).catch(() => {}); throw e; }
+        finally { this.starting.delete(lease.id); }
+      };
+      const { lease, rt } = await start().catch(() => start());
       rt.onClose = () => this.drop();
       this.set("running");
       return { lease, rt };
@@ -260,16 +270,27 @@ end;`, "help", true);
       try { meta = JSON.parse(fs.readFileSync(path.join(root, id, "run.json"), "utf8")); } catch { continue; }   // a run still writing, or damaged
       for (const f of fs.readdirSync(path.join(root, id))) {
         const m = /^(\d+)\.(json|svg|png)$/.exec(f);
-        if (m) out.push({ run: id, n: Number(m[1]), mime: MIME_OF[m[2]], source: meta.source, kind: meta.kind, time: meta.started ?? "" });
+        if (m) out.push({ run: id, n: Number(m[1]), mime: MIME_OF[m[2]], source: meta.source, kind: meta.kind, time: meta.started ?? "",
+          thumb: fs.existsSync(path.join(root, id, `${m[1]}.thumb.png`)) });
       }
     }
     return out.sort((a, b) => (a.run === b.run ? a.n - b.n : a.run < b.run ? 1 : -1));
   }
 
-  figureFile(run: string, n: number): string {
+  figureFile(run: string, n: number, thumb = false): string {
     if (!/^[\w-]+$/.test(run)) throw new Error("bad run");
+    if (thumb) { const p = path.join(this.figuresDir(run), `${n}.thumb.png`); if (fs.existsSync(p)) return p; throw new Error("no preview"); }
     for (const ext of ["json", "svg", "png"]) { const p = path.join(this.figuresDir(run), `${n}.${ext}`); if (fs.existsSync(p)) return p; }
     throw new Error("no such figure");
+  }
+
+  /** A JulixPlot figure's preview, as the page drew it (the runtime sends a scene, never an image). */
+  saveThumb(run: string, n: number, png: string) {
+    const bytes = Buffer.from(png, "base64");
+    if (!/^[\w-]+$/.test(run) || !Number.isInteger(n) || n < 1) throw new Error("bad figure");
+    if (bytes.length > 512 << 10 || bytes.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a") throw new Error("a preview is a small PNG");
+    if (!fs.existsSync(path.join(this.figuresDir(run), `${n}.json`))) throw new Error("no such figure");
+    fs.writeFileSync(path.join(this.figuresDir(run), `${n}.thumb.png`), bytes);
   }
 
   removeFigures(run: string) { if (/^[\w-]+$/.test(run)) fs.rmSync(this.figuresDir(run), { recursive: true, force: true }); }

@@ -57,7 +57,8 @@ export function Workspace({ tab, onTab, variables, figures, shown, onShow, onCop
                 <RemoveKey label={`Close the figures of this run`} onClick={() => api.removeFigures(run).catch(() => {})} /></div>
               {fs.map((f) => (
                 <button key={f.n} type="button" className={`frow${shown?.run === run && shown.n === f.n ? " on" : ""}`} onClick={() => onShow({ run, n: f.n })}>
-                  {f.mime === FIGURE ? <span className="fth scene">plot</span> : <span className="fth"><img src={api.figure(f)} alt="" loading="lazy" /></span>}
+                  {f.mime !== FIGURE ? <span className="fth"><img src={api.figure(f)} alt="" loading="lazy" /></span>
+                    : f.thumb ? <span className="fth paper"><img src={api.thumb(f)} alt="" loading="lazy" /></span> : <span className="fth scene">plot</span>}
                   <span><b>Figure {f.n}</b><small>{base(f.source)} · {f.mime === FIGURE ? "JulixPlot" : f.mime === "image/png" ? "PNG" : "SVG"}</small></span>
                 </button>
               ))}

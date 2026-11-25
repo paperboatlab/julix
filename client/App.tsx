@@ -16,6 +16,7 @@ import { Console } from "./Console.tsx";
 import { RuntimesKey } from "./Keys.tsx";
 import { Packages } from "./Packages.tsx";
 import { Workspace, type FigureRef } from "./Workspace.tsx";
+import { applyRun, type Result } from "./results.ts";
 import { FIGURE, Figure as FigurePane } from "./figure/Figure.tsx";
 
 type Side = "l" | "f" | "b" | "r";
@@ -69,6 +70,7 @@ export function App() {
   const [variables, setVariables] = useState<Variable[]>([]);
   const [figures, setFigures] = useState<Figure[]>([]);
   const [shown, setShown] = useState<FigureRef | null>(null);
+  const [results, setResults] = useState<Record<string, Result[]>>({});   // per file: what its lines made when they last ran
   const [wtab, setWtab] = useState<"vars" | "figs">("vars");
   const [resetSeq, setResetSeq] = useState(0);
   // the figure pane takes a share of the window (a figure needs room); the gutter to the editor sizes it
@@ -96,7 +98,7 @@ export function App() {
     api.folder().then((v) => { setFolder(v); setSession(v.session); document.title = `${v.name} · Julix`; }, fail);
     reload(); reloadFigures();
     api.variables().then(setVariables, () => {});
-    api.runs().then(setRuns, () => {});
+    api.runs().then((rs) => { setRuns(rs); setResults(rs.reduce(applyRun, {})); }, () => {});
   }, [reload, reloadFigures, fail]);
 
   const load = useCallback((p: string | null) => {
@@ -117,9 +119,11 @@ export function App() {
       if (r.state === "done" || r.state === "failed") {
         setPeekVersion((v) => v + 1);
         const figs = r.outputs.filter((o) => o.type === "figure");
+        setResults((m) => applyRun(m, r));
         if (figs.length) { reloadFigures(); setShown({ run: r.id, n: (figs.at(-1) as { n: number }).n }); setHidden((h) => (h.f ? { ...h, f: false } : h)); }
       }
     } else if (e.type === "variables") setVariables(e.variables);
+    else if (e.type === "figures") reloadFigures();
     else if (e.type === "session") { setSession(e.state); setPeekVersion((v) => v + 1); }
   }), [reload, reloadFigures, load]);
 
@@ -314,7 +318,8 @@ export function App() {
                 {doc && doc.path === current && (IMAGE.has(typeOf(doc.path))
                   ? <div className="empty"><p>An image: Julix edits scripts and text.</p></div>
                   : <Code key={`${doc.path}:${doc.readOnly}:${doc.v}`} path={doc.path} text={text} readOnly={doc.readOnly} onChange={setDraft}
-                      onPos={(p: EditorPos) => setCursor({ line: p.line, col: p.col })} busy={busy?.path === doc.path ? busy : undefined} settings={editor} appTheme={appTheme}
+                      onPos={(p: EditorPos) => setCursor({ line: p.line, col: p.col })} busy={busy?.path === doc.path ? busy : undefined} settings={editor}
+                      results={results[doc.path]} variables={variables} onFigure={(run, n) => { setShown({ run, n }); toggle("f", false); }} appTheme={appTheme}
                       session={session === "running" ? juliaSession : undefined}
                       run={{ cell: (c, l) => run("cell", c, l), line: (c, l) => run("line", c, l), file: () => run("file"), save: () => draft !== null && current && save(current, draft) }} />)}
               </div>

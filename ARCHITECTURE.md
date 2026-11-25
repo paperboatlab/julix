@@ -32,8 +32,11 @@ flowchart LR
   A run is a file, a cell, a line or a console expression; runs queue, run in their file's folder, keep
   their line numbers (`atLine`), stream output, and turn every SVG or PNG display into a figure in
   `.julix/figures/<run>/` (a JulixPlot figure as `<n>.json`: the Paperboat figure MIME, its scene and
-  buffers). Variables are asked after each run, before the run reports done. Interrupt
-  goes through the daemon (SIGINT); no answer within 3 s restarts the session.
+  buffers; `<n>.thumb.png` its preview, which the page sends once it has drawn the figure, since the
+  runtime sends a scene and never an image). Variables are asked after each run, before the run reports
+  done. Interrupt goes through the daemon (SIGINT); no answer within 3 s restarts the session. Before the
+  first session JulixPlot is added to the folder's project if `Project.toml` doesn't list it; a runtime
+  that ends while starting is noticed at once (its lease's event) and retried once.
 - `server/packages.ts`: the folder's Julia packages the platform's way (the CLI's recipe): an exec lease
   changes the project, with the network for an add only; `JULIXPLOT=<checkout>` develops a local JulixPlot.
 - `server/control.ts`, `server/runtime.ts`: the protocol clients, copied from Malachite.
@@ -42,7 +45,9 @@ flowchart LR
   (a variable's numbers for the plot and the variable editor, setting them, Help's names and docstrings)
   are quiet evals: queued with runs, printed not returned, so `ans` and the console stay the user's.
 - `client/`: `App.tsx` (the window: bar, cards, dialogs, Ctrl K, the file menus), `Code.tsx` (the kit's
-  Editor with Julix's cells and run keys), `cells.ts` (where cells start and end), `Console.tsx` (runs and
+  Editor with Julix's cells and run keys, the running block's outline and spinner, the inline result
+  chips), `cells.ts` (where cells start and end), `results.ts` (what each top-level line of a run made:
+  names, a function, a drawing; per file, the last run's), `Console.tsx` (runs and
   the REPL line), `traceback.ts`, `Workspace.tsx` (Variables with the selected one plotted, Figures),
   `Keys.tsx` (the runtimes key), `Packages.tsx` (the packages dialog), `api.ts` (with the session the
   editor lints and completes through).

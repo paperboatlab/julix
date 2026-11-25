@@ -194,3 +194,4 @@ kbd { font: 11px var(--font-mono); color: var(--text-muted); border: 1px solid v
 .split.top { gap: 0; }
 .split.top.dragging .panel.side { transition: none; }
 .split.top.fig-hidden > .split-handle { pointer-events: none; }
+.frow .fth.paper { background: var(--surface-raised); border: 1px solid var(--line); }
