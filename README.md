@@ -1,4 +1,9 @@
-# Paperboat Julix
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/readme/banner-dark.gif">
+    <img src=".github/readme/banner-light.gif" width="324" alt="Paperboat Julix">
+  </picture>
+</h1>
 
 A Julia workbench: scripts, a console, the session's variables and the figures your code draws, in one
 window, with the code run by Paperboat's Julia runtime. Part of [Paperboat](https://github.com/paperboatlab/paperboat).
