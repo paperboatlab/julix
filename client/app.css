@@ -13,6 +13,7 @@ body { background: var(--surface-ground); color: var(--text); font: 13px/1.45 va
 .tabs2 > span { display: flex; align-items: center; gap: 6px; padding: 0 6px 0 10px; height: 100%; color: var(--text-muted); cursor: pointer; white-space: nowrap; position: relative; font-size: 13px; }
 .tabs2 > span:hover { color: var(--text); }
 .tabs2 > span.on { color: var(--text); }
+.tabs2 > span.ctx { background: var(--surface-sunken); border-radius: var(--radius-md) var(--radius-md) 0 0; }   /* the right-clicked tab, while its menu is open */
 .tabs2 > span.on::after { content: ""; position: absolute; left: 6px; right: 6px; bottom: -1px; height: 2px; border-radius: 2px; background: var(--accent); }
 .tabs2 .tx { all: unset; width: 16px; height: 16px; border-radius: 50%; display: grid; place-items: center; color: var(--text-muted); font-size: 13px; line-height: 1; cursor: pointer; }
 .tabs2 .tx:hover { background: var(--surface-sunken); color: var(--text); }
@@ -59,7 +60,7 @@ body { background: var(--surface-ground); color: var(--text); font: 13px/1.45 va
 /* the script: tabs, the read-only line of an example, the editor; cells are drawn in Code.tsx */
 .panel.ed { flex: 1; min-width: 0; overflow: hidden; }
 .top > .panel { min-width: 0; }
-.ed .body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
+.ed .body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; position: relative; }   /* the debug dock floats at its bottom */
 .ed .body > .pb-editor { flex: 1; min-width: 0; }
 .ed .cm-line.cell-head { color: var(--text-muted); }
 .tabs2 .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-muted); }
@@ -201,7 +202,6 @@ kbd { font: 11px var(--font-mono); color: var(--text-muted); border: 1px solid v
 .dstart { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 12px 16px 4px; }
 .dstart p { margin: 0; font-size: 12px; color: var(--text-muted); }
 .drun { display: flex; align-items: center; gap: 6px; }
-.dkeys { display: flex; flex-wrap: wrap; gap: 6px; padding: 12px 12px 4px; }
 .dhead { display: flex; align-items: baseline; gap: 6px; padding: 12px 16px 4px; font: 500 10.5px var(--font-mono); letter-spacing: .06em; text-transform: uppercase; color: var(--text-muted); }
 .dhead small { margin-left: auto; text-transform: none; letter-spacing: 0; }
 .drow { all: unset; box-sizing: border-box; display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 8px; align-items: center; width: calc(100% - 16px); margin: 0 8px; padding: 4px 8px; border-radius: var(--radius-md); font-size: 12.5px; }
@@ -218,3 +218,7 @@ button.drow.on { background: color-mix(in srgb, var(--accent) var(--tint), trans
 .drow .cond:focus { border-bottom-color: var(--accent); }
 .dadd { margin: 4px 12px 0; height: 28px; }
 .dadd input { flex: 1; min-width: 0; background: none; border: 0; outline: 0; font: 12px var(--font-mono); color: var(--text); }
+.gmenu .menu { border-radius: var(--radius-md); }   /* the breakpoint gutter's menu: a file menu without its head */
+/* the debug dock in a narrow editor: its keys say only their icons (each keeps its title), where it is goes */
+.ed .body { container-type: inline-size; }
+@container (max-width: 620px) { .debug-dock .key { font-size: 0; gap: 0; padding-inline: 8px; } .debug-dock > .key.primary:first-child { min-width: 0; } .debug-dock .run-status { display: none; } }
