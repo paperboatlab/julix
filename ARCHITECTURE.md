@@ -59,8 +59,8 @@ flowchart LR
 - `client/figure/`: `Figure.tsx` (a figure file: a JulixPlot scene to FigureView, else its image),
   `FigureView.tsx` and `scene.ts` (from legacy MX: the figure's grid; 2D axes on the kit's `Plot2D`,
   colour bars, legends, TeX labels; 3D axes on the stage).
-- `client/stage/`: the 3D stage (three.js, orbit, view cube, axes; paperboat-shared-legacy's station
-  view). ponytail: here until it joins `@paperboatlab/ui` beside Simplicial's stage.
+- 3D figures draw on the kit's stage (`@paperboatlab/ui/stage`: three.js, orbit, view cube, axes),
+  shared with Simplicial's Station.
 - From `@paperboatlab/ui`: the editor with its settings key, Julia's grammar, lint and completion
   (`/editor`), the file tree (`/files`), `Plot2D`, `Heatmap`, `Colorbar`, `TexText` (`/plot`), the package
   manager (`/packages`), `HelpWindow` (F1), `VariableEditor`, the Panels key, and the rest of the kit.

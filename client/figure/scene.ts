@@ -1,7 +1,7 @@
 // Structured 2D/3D figure scene unpacker and adapters (Julia Z-up / Plot2DLayer / SceneView).
 // Pure TypeScript with type-only imports from @paperboat/shared so unit tests run directly in Node.
 import type { Interpreter, PlotAxes, PlotLegendEntry, Plot2DLayer, PlotText } from "@paperboatlab/ui/plot";
-import type { SceneLabel, ScenePlotLayer } from "../stage/SceneView.tsx";
+import type { SceneLabel, ScenePlotLayer } from "@paperboatlab/ui/stage";
 
 export type BufRef = {
   buf: true;
