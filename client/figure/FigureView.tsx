@@ -4,7 +4,7 @@
 // home reset, Persp/Iso, 3D grids & surface wireframes) while emitting ViewState for export.
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Colorbar, formatCoord, paperClass, Plot2D, TexText, type PlotViewLimits, type PlotViewState } from "@paperboatlab/ui/plot";
-import { SceneView, type SceneCameraState, type ScenePlotPick } from "../stage/SceneView.tsx";
+import { SceneView, type SceneCameraState, type ScenePlotPick } from "@paperboatlab/ui/stage";
 
 /** One axis's view as the user left it (legacy kernel protocol `ViewAxisState`): 2D limits, or a 3D camera. */
 export type ViewAxisState =
