@@ -1,8 +1,8 @@
-// The Workspace card: the session's variables (filtered by name), and every figure kept, by run. The
-// Debug tab waits for the runtime's debug ops (plans/2026-11-24_22-30_julix_v0_1.md).
+// The Workspace card: the session's variables (filtered by name), the debugger (Debug.tsx), and every
+// figure kept, by run.
 import { Key, RemoveKey, Tabs, VariableEditor, type ValueGridValue } from "@paperboatlab/ui";
 import { Heatmap, Plot2D } from "@paperboatlab/ui/plot";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, type Figure, type Variable } from "./api.ts";
 import { FIGURE } from "./figure/Figure.tsx";
 
@@ -13,8 +13,9 @@ const time = (iso: string) => (iso ? new Date(iso).toTimeString().slice(0, 5) : 
 /** What a type is, briefly: `Matrix{Float64}` stays, a long parametric type keeps its head. */
 const short = (t: string) => (t.length > 28 ? `${t.slice(0, t.indexOf("{") > 0 ? t.indexOf("{") : 26)}{…}` : t);
 
-export function Workspace({ tab, onTab, variables, figures, shown, onShow, onCopy, onError }: {
-  tab: "vars" | "figs"; onTab: (t: "vars" | "figs") => void; variables: Variable[]; figures: Figure[];
+export type WorkspaceTab = "vars" | "debug" | "figs";
+export function Workspace({ tab, onTab, variables, figures, shown, onShow, onCopy, onError, debug, paused }: {
+  tab: WorkspaceTab; onTab: (t: WorkspaceTab) => void; variables: Variable[]; figures: Figure[]; debug: ReactNode; paused: boolean;
   shown: FigureRef | null; onShow: (f: FigureRef) => void; onCopy: (text: string, what: string) => void; onError: (e: unknown) => void;
 }) {
   const [filter, setFilter] = useState("");
@@ -31,7 +32,8 @@ export function Workspace({ tab, onTab, variables, figures, shown, onShow, onCop
 
   return (
     <>
-      <div className="wtabs"><Tabs label="Workspace" value={tab} onChange={onTab} tabs={[{ value: "vars", label: "Variables", count: variables.length }, { value: "figs", label: "Figures", count: figures.length }]} /></div>
+      <div className="wtabs"><Tabs label="Workspace" value={tab} onChange={onTab} tabs={[{ value: "vars", label: "Variables", count: variables.length }, { value: "debug", label: "Debug", count: paused ? "paused" : undefined }, { value: "figs", label: "Figures", count: figures.length }]} /></div>
+      {tab === "debug" && debug}
       {tab === "vars" && (
         <>
           <label className="well vfilt"><input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter variables" aria-label="Filter variables" /><em>{vars.length}</em></label>

@@ -40,6 +40,10 @@ export function serve(dir: string, port = DEFAULT_PORT, control = new Control())
 
   const hosts = () => { const p = (server.address() as any)?.port; return [`127.0.0.1:${p}`, `localhost:${p}`]; };
 
+  const DEBUG = new Set(["continue", "over", "into", "out", "pause", "stop", "breakpoints", "locals", "eval"]);
+  const breakpoints = (v: unknown) => (Array.isArray(v) ? v : []).filter((b) => b && Number.isInteger(b.line) && b.line > 0)
+    .map((b) => ({ line: b.line as number, enabled: b.enabled !== false, condition: typeof b.condition === "string" ? b.condition : "" }));
+
   const server = http.createServer(async (req, res) => {
     const url = new URL(req.url ?? "/", "http://x");
     try {
@@ -77,7 +81,19 @@ export function serve(dir: string, port = DEFAULT_PORT, control = new Control())
           const source = kind === "console" ? "console" : str("path");
           if (source !== "console") folder.resolve(source);   // a path the page names stays in the folder
           const code = kind === "file" && typeof body.code !== "string" ? folder.read(source) : str("code");
-          return send(res, 200, sessions.run(kind, source, code, Number(body.line ?? 1) || 1));
+          // a debug run: the file's breakpoints go with it (lines, and conditions: Julia code read where it stops)
+          const debug = body.debug === true && kind !== "console" ? { breakpoints: breakpoints(body.breakpoints) } : undefined;
+          return send(res, 200, sessions.run(kind, source, code, Number(body.line ?? 1) || 1, debug));
+        }
+        case "GET /api/debug": return send(res, 200, { paused: sessions.paused ?? null });
+        case "POST /api/debug": {
+          const command = str("command");
+          if (!DEBUG.has(command)) throw new FolderError(`command is one of ${[...DEBUG].join(", ")}`);
+          const args: Record<string, unknown> = {};
+          if (command === "breakpoints") { args.file = str("file"); args.breakpoints = breakpoints(body.breakpoints); }
+          if (command === "locals" || command === "eval") args.frame = Number(body.frame);
+          if (command === "eval") args.code = str("code");
+          return send(res, 200, await sessions.debug(command, args));
         }
         case "POST /api/interrupt": return send(res, 200, await sessions.interrupt());
         case "POST /api/restart": return send(res, 200, sessions.restart());

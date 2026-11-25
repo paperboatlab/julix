@@ -3,8 +3,8 @@
 // the cursor tinted, never a bar beside it) and the run keys: Ctrl Enter the cell, Shift Enter the line or
 // selection, F5 the file, Ctrl S save.
 import { Editor, languageFor, type EditorPos, type EditorSettings, type Session } from "@paperboatlab/ui/editor";
-import { RangeSetBuilder } from "@codemirror/state";
-import { Decoration, EditorView, ViewPlugin, WidgetType, type DecorationSet, type KeyBinding, type ViewUpdate } from "@codemirror/view";
+import { Prec, RangeSet, RangeSetBuilder } from "@codemirror/state";
+import { Decoration, EditorView, GutterMarker, ViewPlugin, WidgetType, gutter, type DecorationSet, type KeyBinding, type ViewUpdate } from "@codemirror/view";
 import { useMemo, useRef } from "react";
 import { cellAt, isHead } from "./cells.ts";
 import { api, type Variable } from "./api.ts";
@@ -157,15 +157,59 @@ function chips(results: Result[], vars: Variable[], onFigure: (run: string, n: n
   ];
 }
 
+// The debugger in the editor: breakpoints in a gutter left of the line numbers (the accent; a condition
+// rings it, a disabled one is hollow), toggled by a click or F9; the line a debug run waits at, tinted.
+export type Breakpoint = { line: number; condition?: string; enabled?: boolean };
+class Dot extends GutterMarker {
+  cls: string;
+  constructor(cls: string) { super(); this.cls = cls; }
+  eq(o: Dot) { return o.cls === this.cls; }
+  toDOM() { const d = document.createElement("span"); d.className = this.cls; return d; }
+}
+function debugging(bps: Breakpoint[], stop: number | undefined, toggle: (line: number) => void) {
+  return [
+    Prec.high(gutter({
+      class: "cm-bps",
+      markers: (view) => {
+        const doc = view.state.doc, at = (l: number) => doc.line(l).from;   // one marker a line: where it waits, else its breakpoint
+        const marks = bps.filter((bp) => bp.line <= doc.lines && bp.line !== stop)
+          .map((bp) => new Dot(`bp${bp.enabled === false ? " off" : ""}${bp.condition ? " cond" : ""}`).range(at(bp.line)));
+        if (stop && stop <= doc.lines) marks.push(new Dot("at").range(at(stop)));
+        return RangeSet.of(marks, true);
+      },
+      initialSpacer: () => new Dot("bp"),
+      domEventHandlers: { mousedown: (view, line) => { toggle(view.state.doc.lineAt(line.from).number); return true; } },
+    })),
+    stop ? EditorView.decorations.of((view) => stop <= view.state.doc.lines
+      ? RangeSet.of([Decoration.line({ class: "dbg-at" }).range(view.state.doc.line(stop).from)]) : Decoration.none) : [],
+    stop ? ViewPlugin.define((view) => {   // the paused line comes into view
+      requestAnimationFrame(() => stop <= view.state.doc.lines && view.dispatch({ effects: EditorView.scrollIntoView(view.state.doc.line(stop).from, { y: "center" }) }));
+      return {};
+    }) : [],
+    EditorView.theme({
+      ".cm-bps": { width: "16px", cursor: "pointer" },
+      ".cm-bps .cm-gutterElement": { display: "flex", alignItems: "center", justifyContent: "center" },
+      ".cm-bps .bp": { width: "9px", height: "9px", borderRadius: "50%", background: "var(--accent)" },
+      ".cm-bps .bp.cond": { boxShadow: "0 0 0 2px var(--surface-raised), 0 0 0 3px var(--accent)" },
+      ".cm-bps .bp.off": { background: "transparent", border: "1.5px solid var(--accent)" },
+      ".cm-bps .cm-gutterElement:first-child .bp": { visibility: "hidden" },   // the spacer
+      ".cm-bps .at": { width: 0, height: 0, borderTop: "5px solid transparent", borderBottom: "5px solid transparent", borderLeft: "8px solid var(--accent)", marginLeft: "-6px" },
+      ".cm-line.dbg-at": { background: "color-mix(in srgb, var(--accent) 22%, transparent)" },
+    }),
+  ];
+}
+
 export type Runner = { cell: (code: string, line: number) => void; line: (code: string, line: number) => void; file: () => void; save: () => void };
 
 /** One file per mount: the caller remounts (`key`) for another file or a copy changed on disk. */
-export function Code({ path, text, readOnly, onChange, onPos, run, busy, results, variables, onFigure, session, settings, appTheme }: {
+export function Code({ path, text, readOnly, onChange, onPos, run, busy, results, variables, onFigure, breakpoints, onBreakpoint, stopAt, session, settings, appTheme }: {
   path: string; text: string; readOnly: boolean; onChange: (t: string) => void; onPos: (p: EditorPos) => void; run: Runner;
   /** The lines a run of this file is running now. */
   busy?: { from: number; to: number };
   /** What this file's lines made when they last ran, and the session's variables to read them from. */
   results?: Result[]; variables?: Variable[]; onFigure?: (run: string, n: number) => void;
+  /** This file's breakpoints, F9 or a gutter click toggling one, and the line a debug run waits at. */
+  breakpoints?: Breakpoint[]; onBreakpoint?: (line: number) => void; stopAt?: number;
   session?: Session; settings: EditorSettings; appTheme: "light" | "dark";
 }) {
   const r = useRef(run);
@@ -185,14 +229,17 @@ export function Code({ path, text, readOnly, onChange, onPos, run, busy, results
       return true;
     } },
     { key: "F5", preventDefault: true, run: () => { r.current.file(); return true; } },
+    { key: "F9", preventDefault: true, run: (v) => { bp.current?.(v.state.doc.lineAt(v.state.selection.main.head).number); return true; } },
     { key: "Mod-s", preventDefault: true, run: () => { r.current.save(); return true; } },
   ], []);
   const language = useMemo(() => languageFor(path), [path]);
-  const fig = useRef(onFigure);
+  const fig = useRef(onFigure), bp = useRef(onBreakpoint);
   fig.current = onFigure;
+  bp.current = onBreakpoint;
   const extra = useMemo(() => language.id === "julia"
-    ? [cells, busy ? running(busy) : [], results?.length ? chips(results, variables ?? [], (r, n) => fig.current?.(r, n)) : []] : undefined,
-  [language, busy?.from, busy?.to, results, variables]);
+    ? [cells, busy ? running(busy) : [], results?.length ? chips(results, variables ?? [], (r, n) => fig.current?.(r, n)) : [],
+      debugging(breakpoints ?? [], stopAt, (l) => bp.current?.(l))] : undefined,
+  [language, busy?.from, busy?.to, results, variables, breakpoints, stopAt]);
   return (
     <Editor value={text} onChange={onChange} onPos={onPos} language={language} session={language.runtime === "julia" ? session : undefined}
       settings={settings} appTheme={appTheme} ariaLabel={path} keys={keys} extra={extra} readOnly={readOnly} />
