@@ -3,8 +3,8 @@
 // Workspace card at the right; the Console below. Settings, help and About are Ctrl K commands; Ctrl K
 // is the only way to search. Everything shown comes from the app server; the files are the record.
 import {
-  AppMark, DebugDock, DEBUG_KEYS, Dialog, HelpWindow, Icon, Key, Menu, Notifications, Panel, PanelsKey, Search, Segmented, Spinner, Split, ThemePicker, Toasts, chordMatches, readStored, typing, useTheme, useToasts, writeStored,
-  type Command, type HelpProvider, type MenuEntry, type PaneRect, type SearchItem, type Theme,
+  About, AppMark, DebugDock, DEBUG_KEYS, Dialog, HelpWindow, Icon, Key, Menu, Notifications, Panel, PanelsKey, Search, Segmented, Spinner, Split, ThemePicker, Toasts, chordMatches, readStored, typing, useTheme, useToasts, writeStored,
+  type Command, type Credit, type HelpProvider, type MenuEntry, type PaneRect, type SearchItem, type Theme,
 } from "@paperboatlab/ui";
 import { EditorSettingsKey, TabMenu, afterClose, orderTabs, tabMenu, useEditorSettings, type EditorPos } from "@paperboatlab/ui/editor";
 import { FileTree, fileIconFor, type FileActions, type FileEntry } from "@paperboatlab/ui/files";
@@ -462,22 +462,27 @@ export function App() {
         </Dialog>
       )}
       {dialog === "help" && <HelpWindow app="Julix" provider={help} commands={commands} onClose={() => setDialog(null)} />}
-      {dialog === "about" && (
-        <Dialog title="About Julix" onClose={() => setDialog(null)} actions={<Key onClick={() => setDialog(null)}>Close</Key>}>
-          <div className="about">
-            <AppMark app="julix" size={64} idle label="" />
-            <dl>
-              <dt>Julix</dt><dd>{folder?.version} · a Julia workbench, part of Paperboat</dd>
-              <dt>Runtime</dt><dd>{julia ? `Julia ${julia.version} · ${julia.backend} · paperboat-runtime/0` : "Julia, from paperboatd (starts with the first run)"}</dd>
-              <dt>Folder</dt><dd className="mono">{folder?.root}</dd>
-              <dt>Licence</dt><dd>GNU GPL 3.0 · github.com/paperboatlab/julix</dd>
-            </dl>
-          </div>
-        </Dialog>
-      )}
+      {dialog === "about" && <AboutJulix version={folder?.version ?? ""} julia={julia} onClose={() => setDialog(null)} />}
       {dialog === "packages" && <Packages julia={julia?.version} onClose={() => setDialog(null)} notify={show} />}
       <Toasts toasts={toasts} onDismiss={dismiss} />
     </div>
+  );
+}
+
+/** What Julix itself ships; About adds the kit's libraries and the fonts. */
+const CREDITS: Credit[] = [
+  ["Julia", "the language and its runtime", "MIT", "https://julialang.org"],
+  ["JulixPlot.jl", "figures", "MPL-2.0", "https://github.com/paperboatlab/JulixPlot.jl"],
+  ["Cairo.jl, Colors.jl", "JulixPlot's drawing and colours", "MIT", "https://github.com/JuliaGraphics"],
+  ["three.js", "3-D figures", "MIT", "https://threejs.org"],
+];
+
+function AboutJulix({ version, julia, onClose }: { version: string; julia?: Run["runtime"]; onClose: () => void }) {
+  const [paperboat, setPaperboat] = useState<string | null>();
+  useEffect(() => { api.paperboat().then((r) => setPaperboat(r.version), () => {}); }, []);
+  return (
+    <About app="julix" role="A Julia workbench" version={version} paperboat={paperboat} repo="paperboatlab/julix" credits={CREDITS} onClose={onClose}
+      info={[julia ? `Julia ${julia.version}` : "Julia (starts with the first run)", julia?.backend, "paperboat-runtime/0"].filter(Boolean).join(" · ")} />
   );
 }
 

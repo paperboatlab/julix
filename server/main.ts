@@ -7,7 +7,7 @@ import fs from "node:fs";
 import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { Control, ControlError } from "./control.ts";
+import { Control, ControlError, paperboatVersion } from "./control.ts";
 import { Folder, FolderError } from "./folder.ts";
 import { PackageError, packages } from "./packages.ts";
 import { Sessions, type Kind } from "./session.ts";
@@ -62,6 +62,7 @@ export function serve(dir: string, port = DEFAULT_PORT, control = new Control())
       const str = (k: string) => { const v = body[k]; if (typeof v !== "string") throw new FolderError(`missing ${k}`); return v; };
       switch (`${req.method} ${url.pathname}`) {
         case "GET /api/folder": return send(res, 200, { name: folder.name, root: folder.root, version: VERSION, session: sessions.state });
+        case "GET /api/paperboat": return send(res, 200, { version: await paperboatVersion() });
         case "GET /api/tree": return send(res, 200, { files: folder.tree(), examples: folder.exampleTree() });
         case "GET /api/file": return send(res, 200, { path: q("path"), text: folder.read(q("path")), readOnly: Folder.readOnly(q("path")) });
         case "PUT /api/file": { folder.write(q("path"), str("text")); return send(res, 200, {}); }
