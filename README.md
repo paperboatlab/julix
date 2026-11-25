@@ -17,7 +17,7 @@ the code shows as SVG or PNG becomes a figure, kept per run.
 plots are `@paperboatlab/ui`'s. Next: JulixPlot.jl (interactive figures on the kit's plots) and shared
 variables with Simplicial.
 
-**Docs:** <https://paperboatlab.github.io/apps/julix/> (sources in [`docs/`](docs/))
+**Docs:** <https://paperboatlab.org/apps/julix/> (sources in [`docs/`](docs/))
 
 **Design:** [ARCHITECTURE.md](ARCHITECTURE.md) · **Look:** [@paperboatlab/ui](https://github.com/paperboatlab/paperboat-ui)
 and the rebrand mockup (`agent-docs/rebrand/apps/julix`)
