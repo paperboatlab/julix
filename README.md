@@ -42,8 +42,8 @@ npm test             # e2e.test.ts too, when paperboatd is on PATH or $PAPERBOAT
 ## Run
 
 ```sh
-bin/julix ~/work/tank-level              # http://127.0.0.1:59220/
-bin/julix . --port 59300
+bin/julix ~/work/tank-level              # http://127.0.0.1:30473/
+bin/julix . --port 30500
 ```
 
 Running code needs the Paperboat runtime daemon: `paperboatd` on PATH (the `paperboat-cli` package) or
