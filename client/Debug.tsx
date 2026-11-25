@@ -1,19 +1,13 @@
-// The Debug tab (the Julix mockup's Workspace card): Start debugging; while a debug run waits, its keys, the
+// The Debug tab (the Julix mockup's Workspace card): Start debugging; while a debug run waits, the
 // call stack (a frame shows its locals), Watch (expressions read in the frame) and every breakpoint (on or
 // off, a condition: Julia code read where it stops, remove). Stepping is the runtime's (paperboat
-// docs/runtime.md "Debugging"); the breakpoints are the page's, per file, sent with each debug run.
-import { Key, RemoveKey, Spinner, readStored, writeStored } from "@paperboatlab/ui";
+// docs/runtime.md "Debugging"), its keys the debug dock's over the editor (App); the breakpoints are the page's, per file, sent with each debug run.
+import { DEBUG_KEYS, Key, RemoveKey, Spinner, readStored, writeStored } from "@paperboatlab/ui";
 import { useEffect, useState } from "react";
 import { api, type Breakpoint, type DebugCommand, type Paused, type Variable } from "./api.ts";
 
 const base = (p: string) => p.slice(p.lastIndexOf("/") + 1);
 const isList = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === "string");
-
-/** The keys of a waiting run, with their shortcuts. */
-export const STEPS: { cmd: DebugCommand; label: string; keys: string }[] = [
-  { cmd: "continue", label: "Continue", keys: "F5" }, { cmd: "over", label: "Step over", keys: "F10" },
-  { cmd: "into", label: "Into", keys: "F11" }, { cmd: "out", label: "Out", keys: "Shift F11" }, { cmd: "stop", label: "Stop", keys: "Shift F5" },
-];
 
 export function Debug({ paused, debugging, current, breakpoints, onStart, onCommand, onBreakpoints, onOpen, onError }: {
   paused: Paused | null; debugging: boolean; current: string | null;
@@ -49,17 +43,13 @@ export function Debug({ paused, debugging, current, breakpoints, onStart, onComm
     <div className="scroll dbg">
       {!debugging && (
         <div className="dstart">
-          <Key kind="primary" icon="play" disabled={!current} onClick={onStart} shortcut="Ctrl F5">Start debugging</Key>
+          <Key kind="primary" icon="play" disabled={!current} onClick={onStart} shortcut={DEBUG_KEYS.start}>Start debugging</Key>
           <p>{current ? `Runs ${base(current)} and stops at each breakpoint.` : "Open a script to debug it."} Set one in the gutter or with F9; a condition goes below.</p>
         </div>
       )}
-      {debugging && !paused && <div className="dstart"><p className="drun"><Spinner size={12} /> running in the debugger</p><Key size="sm" onClick={() => onCommand("pause")}>Pause</Key></div>}
+      {debugging && !paused && <div className="dstart"><p className="drun"><Spinner size={12} /> running in the debugger</p><Key size="sm" icon="debug-pause" title={`Pause (${DEBUG_KEYS.pause})`} onClick={() => onCommand("pause")}>Pause</Key></div>}
       {paused && (
         <>
-          <div className="dkeys">
-            {STEPS.map((s) => <Key key={s.cmd} size="sm" kind={s.cmd === "continue" ? "primary" : s.cmd === "stop" ? "quiet" : undefined}
-              icon={s.cmd === "continue" ? "play" : s.cmd === "stop" ? "debug-stop" : undefined} title={`${s.label} (${s.keys})`} onClick={() => onCommand(s.cmd)}>{s.label}</Key>)}
-          </div>
           <div className="dhead">Call stack<small>{paused.reason === "breakpoint" ? "at a breakpoint" : paused.reason === "pause" ? "paused" : "stepped"}</small></div>
           {paused.frames.map((f) => (
             <button key={f.id} type="button" className={`drow${frame === f.id ? " on" : ""}`} onClick={() => setFrame(f.id)} onDoubleClick={() => onOpen(paused.source, f.line)}>

@@ -158,7 +158,7 @@ function chips(results: Result[], vars: Variable[], onFigure: (run: string, n: n
 }
 
 // The debugger in the editor: breakpoints in a gutter left of the line numbers (the accent; a condition
-// rings it, a disabled one is hollow), toggled by a click or F9; the line a debug run waits at, tinted.
+// rings it, a disabled one is hollow), toggled by a click or F9, a right click its menu (App); the line a debug run waits at, tinted.
 export type Breakpoint = { line: number; condition?: string; enabled?: boolean };
 class Dot extends GutterMarker {
   cls: string;
@@ -166,7 +166,7 @@ class Dot extends GutterMarker {
   eq(o: Dot) { return o.cls === this.cls; }
   toDOM() { const d = document.createElement("span"); d.className = this.cls; return d; }
 }
-function debugging(bps: Breakpoint[], stop: number | undefined, toggle: (line: number) => void) {
+function debugging(bps: Breakpoint[], stop: number | undefined, toggle: (line: number) => void, menu: (line: number, x: number, y: number) => void) {
   return [
     Prec.high(gutter({
       class: "cm-bps",
@@ -178,7 +178,10 @@ function debugging(bps: Breakpoint[], stop: number | undefined, toggle: (line: n
         return RangeSet.of(marks, true);
       },
       initialSpacer: () => new Dot("bp"),
-      domEventHandlers: { mousedown: (view, line) => { toggle(view.state.doc.lineAt(line.from).number); return true; } },
+      domEventHandlers: {
+        mousedown: (view, line, e) => { if ((e as MouseEvent).button === 0) toggle(view.state.doc.lineAt(line.from).number); return true; },
+        contextmenu: (view, line, e) => { const m = e as MouseEvent; m.preventDefault(); menu(view.state.doc.lineAt(line.from).number, m.clientX, m.clientY); return true; },
+      },
     })),
     stop ? EditorView.decorations.of((view) => stop <= view.state.doc.lines
       ? RangeSet.of([Decoration.line({ class: "dbg-at" }).range(view.state.doc.line(stop).from)]) : Decoration.none) : [],
@@ -202,14 +205,14 @@ function debugging(bps: Breakpoint[], stop: number | undefined, toggle: (line: n
 export type Runner = { cell: (code: string, line: number) => void; line: (code: string, line: number) => void; file: () => void; save: () => void };
 
 /** One file per mount: the caller remounts (`key`) for another file or a copy changed on disk. */
-export function Code({ path, text, readOnly, onChange, onPos, run, busy, results, variables, onFigure, breakpoints, onBreakpoint, stopAt, session, settings, appTheme }: {
+export function Code({ path, text, readOnly, onChange, onPos, run, busy, results, variables, onFigure, breakpoints, onBreakpoint, onBreakpointMenu, stopAt, session, settings, appTheme }: {
   path: string; text: string; readOnly: boolean; onChange: (t: string) => void; onPos: (p: EditorPos) => void; run: Runner;
   /** The lines a run of this file is running now. */
   busy?: { from: number; to: number };
   /** What this file's lines made when they last ran, and the session's variables to read them from. */
   results?: Result[]; variables?: Variable[]; onFigure?: (run: string, n: number) => void;
-  /** This file's breakpoints, F9 or a gutter click toggling one, and the line a debug run waits at. */
-  breakpoints?: Breakpoint[]; onBreakpoint?: (line: number) => void; stopAt?: number;
+  /** This file's breakpoints, F9 or a gutter click toggling one, a right click on the gutter, and the line a debug run waits at. */
+  breakpoints?: Breakpoint[]; onBreakpoint?: (line: number) => void; onBreakpointMenu?: (line: number, x: number, y: number) => void; stopAt?: number;
   session?: Session; settings: EditorSettings; appTheme: "light" | "dark";
 }) {
   const r = useRef(run);
@@ -233,12 +236,13 @@ export function Code({ path, text, readOnly, onChange, onPos, run, busy, results
     { key: "Mod-s", preventDefault: true, run: () => { r.current.save(); return true; } },
   ], []);
   const language = useMemo(() => languageFor(path), [path]);
-  const fig = useRef(onFigure), bp = useRef(onBreakpoint);
+  const fig = useRef(onFigure), bp = useRef(onBreakpoint), bpMenu = useRef(onBreakpointMenu);
   fig.current = onFigure;
   bp.current = onBreakpoint;
+  bpMenu.current = onBreakpointMenu;
   const extra = useMemo(() => language.id === "julia"
     ? [cells, busy ? running(busy) : [], results?.length ? chips(results, variables ?? [], (r, n) => fig.current?.(r, n)) : [],
-      debugging(breakpoints ?? [], stopAt, (l) => bp.current?.(l))] : undefined,
+      debugging(breakpoints ?? [], stopAt, (l) => bp.current?.(l), (l, x, y) => bpMenu.current?.(l, x, y))] : undefined,
   [language, busy?.from, busy?.to, results, variables, breakpoints, stopAt]);
   return (
     <Editor value={text} onChange={onChange} onPos={onPos} language={language} session={language.runtime === "julia" ? session : undefined}

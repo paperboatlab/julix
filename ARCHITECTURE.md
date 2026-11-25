@@ -47,10 +47,11 @@ flowchart LR
   `lint` and `complete` pass through `/api/session` as the runtime answers them. Julix's own questions
   (a variable's numbers for the plot and the variable editor, setting them, Help's names and docstrings)
   are quiet evals: queued with runs, printed not returned, so `ans` and the console stay the user's.
-- `client/`: `App.tsx` (the window: bar, cards, dialogs, Ctrl K, the file menus), `Code.tsx` (the kit's
-  Editor with Julix's cells and run keys, the running block's outline and spinner, the inline result
-  chips, the breakpoint gutter and the line a debug run waits at), `Debug.tsx` (the Debug tab: keys, call
-  stack, locals, Watch, breakpoints; breakpoints and Watch kept in the browser), `cells.ts` (where cells start and end), `results.ts` (what each top-level line of a run made:
+- `client/`: `App.tsx` (the window: bar, cards, dialogs, Ctrl K, the file menus, the tab menu with pinned
+  tabs (kit `tabMenu`), the debug dock over the editor (kit `DebugDock`), the breakpoint gutter's menu),
+  `Code.tsx` (the kit's Editor with Julix's cells and run keys, the running block's outline and spinner,
+  the inline result chips, the breakpoint gutter and the line a debug run waits at), `Debug.tsx` (the
+  Debug tab: Start debugging, call stack, locals, Watch, breakpoints; breakpoints and Watch kept in the browser), `cells.ts` (where cells start and end), `results.ts` (what each top-level line of a run made:
   names, a function, a drawing; per file, the last run's), `Console.tsx` (runs and
   the REPL line), `traceback.ts`, `Workspace.tsx` (Variables with the selected one plotted, Figures),
   `Keys.tsx` (the runtimes key), `Packages.tsx` (the packages dialog), `api.ts` (with the session the
