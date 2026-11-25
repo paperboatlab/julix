@@ -12,7 +12,7 @@ import { Folder, FolderError } from "./folder.ts";
 import { PackageError, packages } from "./packages.ts";
 import { Sessions, type Kind } from "./session.ts";
 
-export const DEFAULT_PORT = 59220;   // paperboat/apps.toml
+export const DEFAULT_PORT = 30473;   // Julix's home port (paperboat/apps.toml); other folders get --port from the CLI (30500–30599)
 export const VERSION = "0.1.0";
 const DIST = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "dist");
 const TYPES: Record<string, string> = {
