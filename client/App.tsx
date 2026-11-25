@@ -8,8 +8,9 @@ import {
 } from "@paperboatlab/ui";
 import { EditorSettingsKey, TabMenu, afterClose, orderTabs, tabMenu, useEditorSettings, type EditorPos } from "@paperboatlab/ui/editor";
 import { FileTree, fileIconFor, type FileActions, type FileEntry } from "@paperboatlab/ui/files";
+import { ConnectHub, HubSelector, type Hub } from "@paperboatlab/ui/hub";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, listen, session as juliaSession, type Breakpoint, type DebugCommand, type Entry, type Figure, type Paused, type Run, type Variable } from "./api.ts";
+import { api, listen, session as juliaSession, type Breakpoint, type DebugCommand, type Entry, type Figure, type HubInfo, type Paused, type Run, type Variable } from "./api.ts";
 import { cellAt, cells } from "./cells.ts";
 import { Code } from "./Code.tsx";
 import { Console } from "./Console.tsx";
@@ -44,6 +45,7 @@ function TypeIcon({ name, folder = false }: { name: string; folder?: boolean }) 
   const { icon, tone } = fileIconFor(name, folder ? "folder" : "file");
   return <span className="fi" style={{ color: `var(--file-${tone})` }}><Icon name={icon} size={14} /></span>;
 }
+const kitHub = (h: HubInfo): Hub => ({ id: h.id, name: h.name, place: h.place, path: h.shown, missing: h.missing, conflicts: h.conflicts });
 const NEW_SCRIPT = "# A Julia script. F5 runs it; Ctrl Enter runs the cell at the cursor (a cell starts at ##).\n\n## First cell\n";
 
 /** Seconds since a run started, ticking on its own so the whole page doesn't redraw. */
@@ -59,6 +61,12 @@ export function App() {
   const appTheme = useTheme(theme);
   const [editor, setEditor] = useEditorSettings(undefined, "julix.editor");   // ponytail: in localStorage until Julix keeps a settings file
   const [folder, setFolder] = useState<{ name: string; root: string; version: string } | null>(null);
+  // the hub Julix works in (by id, so a renamed or moved hub is found again), and the hubs Malachite knows:
+  // read when the page opens, and again as the selector, Ctrl K, Settings or the connect dialog opens.
+  // No Malachite, no hub: with none, nothing on the page mentions hubs.
+  const [hubId, setHubId] = useState<string | null>(() => readStored("julix.hub", (v): v is string => typeof v === "string") ?? null);
+  const [hubs, setHubs] = useState<HubInfo[]>([]);
+  const readHubs = useCallback(() => api.hubs().then((l) => { setHubs(l); return l; }, () => [] as HubInfo[]), []);
   const [tree, setTree] = useState<{ files: Entry[]; examples: Entry[] }>({ files: [], examples: [] });
   const [tabs, setTabs] = useState<string[]>(() => readStored("julix.tabs", isList) ?? []);
   const [current, setCurrent] = useState<string | null>(() => readStored("julix.tabs", isList)?.[0] ?? null);
@@ -88,7 +96,7 @@ export function App() {
   const [peekVersion, setPeekVersion] = useState(0);
   const [search, setSearch] = useState(false);
   const [ask, setAsk] = useState<Ask | null>(null);
-  const [dialog, setDialog] = useState<"settings" | "about" | "packages" | "help" | null>(null);
+  const [dialog, setDialog] = useState<"settings" | "about" | "packages" | "help" | "hub" | null>(null);
   const notes = useToasts();
   const { toasts, show, dismiss } = notes;
   const fail = useCallback((e: unknown) => show({ title: "Couldn't do that", detail: String((e as Error).message ?? e), state: "failed" }), [show]);
@@ -97,6 +105,7 @@ export function App() {
   const starting = useRef<number | null>(null);   // the "Starting Julia" toast, till the session is up or gave up
   const unsaved = useRef(new Map<string, number>());   // a file that failed to save: its toast, till a save goes through
   currentRef.current = current;
+  const switching = useRef(false);   // this page moves the server to another folder: it reloads itself
 
   useEffect(() => writeStored("paperboat.theme", theme), [theme]);
   useEffect(() => writeStored("julix.panels", hidden), [hidden]);
@@ -116,18 +125,30 @@ export function App() {
   const reload = useCallback(() => api.tree().then(setTree, fail), [fail]);
   const reloadFigures = useCallback(() => api.figures().then((fs) => { setFigures(fs); setShown((s) => s ?? (fs[0] ? { run: fs[0].run, n: fs[0].n } : null)); }, () => {}), []);
   useEffect(() => {
-    api.folder().then((v) => { setFolder(v); setSession(v.session); document.title = `${v.name} · Julix`; }, fail);
+    api.folder().then(async (v) => {
+      // back in the hub this page last worked in (the server starts on the folder it was opened on)
+      const want = readStored("julix.hub", (x): x is string => typeof x === "string");
+      const list = want || v.hub ? await readHubs() : (readHubs(), []);   // a plain folder doesn't wait for Malachite
+      if (want && v.hub !== want) {
+        const h = list.find((x) => x.id === want);
+        if (h && !h.missing && await api.connect(want).then(() => true, (e) => { fail(e); return false; })) { switching.current = true; location.reload(); return; }
+        setTabs([]); setCurrent(null);   // the hub's tabs aren't in this folder
+        if (!h) setHubId(null);   // no Malachite, or the hub is off the list: a plain folder again
+      } else if (!want && v.hub && list.length) setHubId(v.hub);   // another page connected this server
+      setFolder(v); setSession(v.session); document.title = `${v.name} · Julix`;
+    }, fail);
     reload(); reloadFigures();
     api.variables().then(setVariables, () => {});
     api.runs().then((rs) => { setRuns(rs); setResults(rs.reduce(applyRun, {})); }, () => {});
     api.paused().then((r) => stopped(r.paused), () => {});
-  }, [reload, reloadFigures, fail, stopped]);
+  }, [reload, reloadFigures, readHubs, fail, stopped]);
+  useEffect(() => writeStored("julix.hub", hubId), [hubId]);
 
   const load = useCallback((p: string | null) => {
     if (!p) { setDoc(null); return; }
     api.file(p).then((d) => { if (currentRef.current === p) { setDoc({ ...d, v: ++copies.current }); setDraft(null); } }, (e) => { setDoc(null); fail(e); });
   }, [fail]);
-  useEffect(() => { load(current); }, [current, load]);
+  useEffect(() => { if (folder) load(current); }, [folder, current, load]);
 
   // live: files (anyone's changes), runs, the variables, the session
   useEffect(() => listen((e) => {
@@ -147,6 +168,7 @@ export function App() {
     } else if (e.type === "variables") setVariables(e.variables);
     else if (e.type === "figures") reloadFigures();
     else if (e.type === "debug") stopped(e.paused as Paused | null);
+    else if (e.type === "folder" && !switching.current) location.reload();   // another page connected the server elsewhere
     else if (e.type === "session") {
       setSession(e.state); setPeekVersion((v) => v + 1);
       // the session starts in the background (the first time in a folder it adds JulixPlot too): one toast, working to its end
@@ -182,6 +204,19 @@ export function App() {
     setPinned((s) => (paths.some((p) => s.has(p)) ? new Set([...s].filter((p) => !paths.includes(p))) : s));
   };
   const close = (p: string) => closeTabs([p]);
+  // connect, switch or disconnect: the typing is saved first, the tabs (this folder's) close, the page reloads
+  const workIn = async (go: () => Promise<{ hub: string | null }>) => {
+    try {
+      if (current && draft !== null && !doc?.readOnly) await api.save(current, draft);
+      switching.current = true;
+      const r = await go();
+      writeStored("julix.hub", r.hub); writeStored("julix.tabs", []); writeStored("julix.pinned", []);
+      location.reload();
+    } catch (e) { switching.current = false; fail(e); }
+  };
+  const connectHub = (id: string | null) => workIn(() => api.connect(id));
+  const newHub = () => setAsk({ title: "New hub", label: "Name", ok: "Create", run: (n) => workIn(() => api.hubNew(n)) });
+  const hub = hubId ? hubs.find((h) => h.id === hubId) : undefined;
   // save what is typed after a pause; the file is the record
   useEffect(() => {
     if (draft === null || !current || doc?.readOnly) return;
@@ -329,6 +364,7 @@ export function App() {
     { id: "c:copyin", label: "Copy this example to my folder", group: "Commands", scope: "Commands", icon: "copy", disabled: !current?.startsWith("@examples/"), why: "Open an example first", run: () => current && copyIn(current) },
     ...PANELS.map((p): SearchItem => ({ id: `p:${p.side}`, label: `${hidden[p.side] ? "Show" : "Hide"} ${p.name === "Figure" ? "the Figure" : p.name === "Console" ? "the Console" : p.name}`, shortcut: p.keys, group: "Commands", scope: "Commands", icon: "command", run: () => toggle(p.side) })),
     ...(["light", "dark", "system"] as Theme[]).map((t): SearchItem => ({ id: `t:${t}`, label: `Theme: ${t}`, group: "Commands", scope: "Commands", icon: `theme-${t}`, disabled: theme === t, why: "It is the theme now", run: () => setTheme(t) })),
+    ...(hubs.length ? [{ id: "s:hub", label: "Connect to a hub…", detail: "Julix keeps its scripts, data and plots in a Malachite hub", group: "Settings", scope: "Settings", icon: "mark-malachite", run: () => setDialog("hub") } as SearchItem] : []),
     { id: "s:settings", label: "Settings", detail: "theme, packages", shortcut: "Ctrl ,", group: "Settings", scope: "Settings", icon: "a-settings", run: () => setDialog("settings") },
     { id: "s:packages", label: "Julia packages…", detail: "add JulixPlot, Plots, DataFrames…", group: "Settings", scope: "Settings", icon: "package", run: () => setDialog("packages") },
     { id: "h:help", label: "Help: Julia's docs", detail: "search names, read docstrings", shortcut: "F1", group: "Help", scope: "Help", icon: "question", run: () => setDialog("help") },
@@ -336,7 +372,9 @@ export function App() {
     ...files(tree.examples).map((p): SearchItem => ({ id: `h:${p}`, label: `Example: ${base(p)}`, group: "Help", scope: "Help", icon: "book", run: () => open(p) })),
     { id: "h:about", label: "About Julix", detail: "version, runtime, licence", group: "Help", scope: "Help", icon: "info", run: () => setDialog("about") },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [debugging, tree, variables, figures, current, doc, running, hidden, theme, open, run, newScript, copyIn, toggle, fail, show]);
+  ], [debugging, tree, variables, figures, current, doc, running, hidden, theme, hubs, open, run, newScript, copyIn, toggle, fail, show]);
+  // the hubs are read again as anything that shows them opens
+  useEffect(() => { if (search || dialog === "settings" || dialog === "hub") readHubs(); }, [search, dialog, readHubs]);
 
   // Help (F1): Julia's own docs, from the session (the names it can reach, their docstrings); the shortcuts page
   // is the kit's, from the keys Julix answers
@@ -356,7 +394,13 @@ export function App() {
       <header className="bar">
         <AppMark app="julix" size={26} idle={!running} label="Julix" />
         <span className="wm">Julix</span>
-        <span className="well proj" title={folder?.root}><TypeIcon name="" folder />{folder?.name ?? "…"}</span>
+        {hub
+          ? <span className="proj-hub" onClickCapture={() => { readHubs(); }}>
+              <HubSelector app="Julix" hub={kitHub(hub)} hubs={hubs.map(kitHub)} onSwitch={(id) => connectHub(id)} onNew={newHub}
+                onOpenInMalachite={hub.missing ? undefined : () => { api.hubInMalachite(hub.id).then(() => show({ title: `${hub.name} opens in Malachite`, state: "done" }), fail); }}
+                onDisconnect={() => connectHub(null)} />
+            </span>
+          : <span className="well proj" title={folder?.root}><TypeIcon name="" folder />{folder?.name ?? "…"}</span>}
         <span className="bend">
           {running
             ? debugging
@@ -458,9 +502,13 @@ export function App() {
           <div className="sett">
             <span>Theme</span><Segmented label="Theme" value={theme} onChange={setTheme} options={[{ value: "light", label: "Light" }, { value: "dark", label: "Dark" }, { value: "system", label: "System" }]} />
             <span>Julia packages</span><span><Key size="sm" onClick={() => setDialog("packages")}>Packages…</Key></span>
+            {hubs.length > 0 && <><span>Hub</span><span>{hub && <span className="hub-now">{hub.name}</span>}<Key size="sm" onClick={() => setDialog("hub")}>{hub ? "Switch…" : "Connect to a hub…"}</Key></span></>}
           </div>
         </Dialog>
       )}
+      {dialog === "hub" && <ConnectHub app="Julix" about="its scripts, data and plots" hubs={hubs.map(kitHub)} current={hubId ?? undefined}
+        onConnect={(id) => { setDialog(null); if (id !== hubId) connectHub(id); }} onNew={() => { setDialog(null); newHub(); }}
+        onFolder={() => { setDialog(null); if (hubId) connectHub(null); }} onClose={() => setDialog(null)} />}
       {dialog === "help" && <HelpWindow app="Julix" provider={help} commands={commands} onClose={() => setDialog(null)} />}
       {dialog === "about" && <AboutJulix version={folder?.version ?? ""} julia={julia} onClose={() => setDialog(null)} />}
       {dialog === "packages" && <Packages julia={julia?.version} onClose={() => setDialog(null)} notify={show} />}

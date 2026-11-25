@@ -42,12 +42,19 @@ flowchart LR
   never queued behind it.
 - `server/packages.ts`: the folder's Julia packages the platform's way (the CLI's recipe): an exec lease
   changes the project, with the network for an add only; `JULIXPLOT=<checkout>` develops a local JulixPlot.
+- `server/hubs.ts`: the hubs (paperboat#16), from `paperboat hub list --json` (`$PAPERBOAT` or on PATH, no
+  shell), read when the page asks; a CLI that is missing or fails means no hubs, and the page says nothing
+  about them (no Malachite, no hub). Connecting moves the server into the hub's folder: a new `Folder`, a
+  new `Sessions` (the old Julia session is released) and a new watcher; Disconnect goes back to the folder
+  Julix was opened on. The page keeps its hub's `id` (`julix.hub`) and asks for it again when it opens, so
+  a restarted server, a renamed or a moved hub is found by its id. `.malachite/` is a dot folder: never in
+  the tree. New hub is `paperboat hub new`, Open in Malachite `paperboat app open malachite`.
 - `server/control.ts`, `server/runtime.ts`: the protocol clients, copied from Malachite.
 - `server/main.ts`: the HTTP server: the page from `dist/`, the JSON API, Server-Sent Events. The editor's
   `lint` and `complete` pass through `/api/session` as the runtime answers them. Julix's own questions
   (a variable's numbers for the plot and the variable editor, setting them, Help's names and docstrings)
   are quiet evals: queued with runs, printed not returned, so `ans` and the console stay the user's.
-- `client/`: `App.tsx` (the window: bar, cards, dialogs, Ctrl K, the file menus, the tab menu with pinned
+- `client/`: `App.tsx` (the window: bar with the kit's `HubSelector` while in a hub, cards, dialogs (Connect to a hub… is the kit's `ConnectHub`), Ctrl K, the file menus, the tab menu with pinned
   tabs (kit `tabMenu`), the debug dock over the editor (kit `DebugDock`), the breakpoint gutter's menu),
   `Code.tsx` (the kit's Editor with Julix's cells and run keys, the running block's outline and spinner,
   the inline result chips, the breakpoint gutter and the line a debug run waits at), `Debug.tsx` (the

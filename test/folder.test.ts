@@ -27,6 +27,9 @@ test("write, create a free name, rename, trash", () => {
   assert.equal(fs.existsSync(path.join(f.root, "s.jl")), false);
   assert.equal(fs.readdirSync(path.join(f.root, ".julix", "trash")).length, 1);
   assert.deepEqual(f.tree().map((e) => e.path), ["sub"]);   // .julix stays out of the tree
+  fs.mkdirSync(path.join(f.root, ".malachite"));
+  fs.writeFileSync(path.join(f.root, ".malachite", "hub.toml"), "schema = 2\n");
+  assert.deepEqual(f.tree().map((e) => e.path), ["sub"]);   // a hub's own files too
 });
 
 test("the examples read, copy in, and refuse writes", () => {

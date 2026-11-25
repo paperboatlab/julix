@@ -14,6 +14,8 @@ export type Run = {
   debug?: boolean;
 };
 export type Values = { kind: "scalar"; value: number } | { kind: "vector"; values: number[] } | { kind: "matrix"; rows: number[][] };
+/** A hub Malachite knows (server/hubs.ts, from `paperboat hub list`). */
+export type HubInfo = { id: string; name: string; path: string; shown: string; place: "local" | "google-drive" | "onedrive" | "dropbox" | "icloud"; missing?: boolean; conflicts?: number };
 export type Package = { name: string; version: string };
 export type Variable = { name: string; type: string; summary: string; size?: number };
 export type Breakpoint = { line: number; condition?: string; enabled?: boolean };
@@ -37,7 +39,12 @@ const q = encodeURIComponent;
 
 export const api = {
   paperboat: () => call<{ version: string | null }>("GET", "/api/paperboat"),
-  folder: () => call<{ name: string; root: string; version: string; session: "stopped" | "starting" | "running" }>("GET", "/api/folder"),
+  folder: () => call<{ name: string; root: string; hub: string | null; version: string; session: "stopped" | "starting" | "running" }>("GET", "/api/folder"),
+  hubs: () => call<HubInfo[]>("GET", "/api/hubs"),
+  /** Work in this hub's folder; null: Disconnect, back to the folder Julix was opened on. */
+  connect: (id: string | null) => call<{ hub: string | null }>("POST", "/api/hub", { id }),
+  hubNew: (name: string) => call<{ hub: string | null }>("POST", "/api/hubs/new", { name }),
+  hubInMalachite: (id: string) => call("POST", "/api/hubs/malachite", { id }),
   tree: () => call<{ files: Entry[]; examples: Entry[] }>("GET", "/api/tree"),
   file: (p: string) => call<{ path: string; text: string; readOnly: boolean }>("GET", `/api/file?path=${q(p)}`),
   save: (p: string, text: string) => call("PUT", `/api/file?path=${q(p)}`, { text }),

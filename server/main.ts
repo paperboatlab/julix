@@ -9,6 +9,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Control, ControlError, paperboatVersion } from "./control.ts";
 import { Folder, FolderError } from "./folder.ts";
+import { hubs, paperboat } from "./hubs.ts";
 import { PackageError, packages } from "./packages.ts";
 import { Sessions, type Kind } from "./session.ts";
 
@@ -22,14 +23,16 @@ const TYPES: Record<string, string> = {
 const KINDS = new Set<Kind>(["file", "cell", "line", "console"]);
 
 export function serve(dir: string, port = DEFAULT_PORT, control = new Control()) {
-  const folder = new Folder(dir);
+  const home = dir;   // the folder Julix was opened on; Disconnect comes back here
+  let folder = new Folder(dir);
+  let hub: string | null = null;   // the hub Julix works in (its id), while connected
   const clients = new Set<http.ServerResponse>();
   const emit = (e: Record<string, unknown>) => { const s = `data: ${JSON.stringify(e)}\n\n`; for (const c of clients) c.write(s); };
-  const sessions = new Sessions(folder, control, emit);
+  let sessions = new Sessions(folder, control, emit);
 
   // the tree follows the files: whoever changed them (this server, another editor, git)
   let pending = new Set<string>(), timer: NodeJS.Timeout | undefined;
-  const watcher = fs.watch(folder.root, { recursive: true }, (_ev, f) => {
+  const watch = () => fs.watch(folder.root, { recursive: true }, (_ev, f) => {
     if (!f) return;
     const rel = f.toString().split(path.sep).join("/");
     if (rel.split("/").some((p) => p.startsWith(".") || p === "node_modules") || rel.endsWith(".tmp")) return;
@@ -37,6 +40,18 @@ export function serve(dir: string, port = DEFAULT_PORT, control = new Control())
     clearTimeout(timer);
     timer = setTimeout(() => { emit({ type: "files", changed: [...pending] }); pending = new Set(); }, 120);
   });
+  let watcher = watch();
+
+  // connecting to a hub: Julix works in the hub's folder (a new Julia session there); Disconnect, back home
+  const workIn = (root: string, id: string | null) => {
+    if (fs.realpathSync(root) !== folder.root) {
+      sessions.restart(); watcher.close(); clearTimeout(timer); pending = new Set();
+      folder = new Folder(root); sessions = new Sessions(folder, control, emit); watcher = watch();
+      emit({ type: "folder" });
+    }
+    hub = id;
+    return { name: folder.name, root: folder.root, hub };
+  };
 
   const hosts = () => { const p = (server.address() as any)?.port; return [`127.0.0.1:${p}`, `localhost:${p}`]; };
 
@@ -61,7 +76,27 @@ export function serve(dir: string, port = DEFAULT_PORT, control = new Control())
       const body = req.method === "GET" ? {} : await json(req);
       const str = (k: string) => { const v = body[k]; if (typeof v !== "string") throw new FolderError(`missing ${k}`); return v; };
       switch (`${req.method} ${url.pathname}`) {
-        case "GET /api/folder": return send(res, 200, { name: folder.name, root: folder.root, version: VERSION, session: sessions.state });
+        case "GET /api/folder": return send(res, 200, { name: folder.name, root: folder.root, hub, version: VERSION, session: sessions.state });
+        case "GET /api/hubs": return send(res, 200, await hubs());
+        case "POST /api/hub": {   // { id }: work in that hub; { id: null }: Disconnect
+          if (body.id === null) return send(res, 200, workIn(home, null));
+          const h = (await hubs()).find((x) => x.id === str("id"));
+          if (!h) throw new FolderError("no such hub", 404);
+          if (h.missing) throw new FolderError(`can't find ${h.name}'s folder (${h.shown})`, 410);
+          return send(res, 200, workIn(h.path, h.id));
+        }
+        case "POST /api/hubs/new": {   // New hub…: Malachite makes it (paperboat hub new), Julix works in it
+          const name = str("name").trim();
+          if (!name || /[\\/"]/.test(name)) throw new FolderError("a hub's name has no / \\ or quotes");
+          const made = await paperboat(["hub", "new", name]).catch((e) => { throw new FolderError(e.message, 502); }) as { id: string; path: string };
+          return send(res, 200, workIn(made.path, made.id));
+        }
+        case "POST /api/hubs/malachite": {   // Open in Malachite: the CLI opens it in the browser
+          const h = (await hubs()).find((x) => x.id === str("id") && !x.missing);
+          if (!h) throw new FolderError("no such hub", 404);
+          await paperboat(["app", "open", "malachite", h.path], 60_000).catch((e) => { throw new FolderError(e.message, 502); });
+          return send(res, 200, {});
+        }
         case "GET /api/paperboat": return send(res, 200, { version: await paperboatVersion() });
         case "GET /api/tree": return send(res, 200, { files: folder.tree(), examples: folder.exampleTree() });
         case "GET /api/file": return send(res, 200, { path: q("path"), text: folder.read(q("path")), readOnly: Folder.readOnly(q("path")) });
@@ -146,7 +181,7 @@ export function serve(dir: string, port = DEFAULT_PORT, control = new Control())
 
   server.listen(port, "127.0.0.1");
   server.on("close", () => { watcher.close(); sessions.close(); for (const c of clients) c.end(); });
-  return { server, folder, sessions };
+  return { server, folder };
 }
 
 function send(res: http.ServerResponse, status: number, body: unknown) {
