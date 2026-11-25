@@ -58,7 +58,8 @@ export class Control {
       if (!d) throw new ControlError("paperboatd not found: install Paperboat (the paperboat-cli package) or set PAPERBOATD");
       fs.mkdirSync(path.dirname(this.path), { recursive: true });
       const log = fs.openSync(path.join(path.dirname(this.path), "paperboatd.log"), "a");
-      spawn(d, ["--socket", this.path], { detached: true, stdio: ["ignore", log, log] }).unref();
+      // a $PAPERBOATD that isn't there fails the spawn: the wait below says so (unhandled, it ended the server)
+      spawn(d, ["--socket", this.path], { detached: true, stdio: ["ignore", log, log] }).on("error", () => {}).unref();
       let last = e;
       for (let i = 0; i < 200; i++) {   // up to 20 s: a first start probes podman and docker
         await new Promise((r) => setTimeout(r, 100));
