@@ -3,7 +3,7 @@
 // Workspace card at the right; the Console below. Settings, help and About are Ctrl K commands; Ctrl K
 // is the only way to search. Everything shown comes from the app server; the files are the record.
 import {
-  AppMark, DebugDock, DEBUG_KEYS, Dialog, HelpWindow, Icon, Key, Menu, Panel, PanelsKey, Search, Segmented, Spinner, Split, ThemePicker, Toasts, chordMatches, readStored, typing, useTheme, useToasts, writeStored,
+  AppMark, DebugDock, DEBUG_KEYS, Dialog, HelpWindow, Icon, Key, Menu, Notifications, Panel, PanelsKey, Search, Segmented, Spinner, Split, ThemePicker, Toasts, chordMatches, readStored, typing, useTheme, useToasts, writeStored,
   type Command, type HelpProvider, type MenuEntry, type PaneRect, type SearchItem, type Theme,
 } from "@paperboatlab/ui";
 import { EditorSettingsKey, TabMenu, afterClose, orderTabs, tabMenu, useEditorSettings, type EditorPos } from "@paperboatlab/ui/editor";
@@ -89,10 +89,13 @@ export function App() {
   const [search, setSearch] = useState(false);
   const [ask, setAsk] = useState<Ask | null>(null);
   const [dialog, setDialog] = useState<"settings" | "about" | "packages" | "help" | null>(null);
-  const { toasts, show, dismiss } = useToasts();
+  const notes = useToasts();
+  const { toasts, show, dismiss } = notes;
   const fail = useCallback((e: unknown) => show({ title: "Couldn't do that", detail: String((e as Error).message ?? e), state: "failed" }), [show]);
   const currentRef = useRef(current);
   const copies = useRef(0);
+  const starting = useRef<number | null>(null);   // the "Starting Julia" toast, till the session is up or gave up
+  const unsaved = useRef(new Map<string, number>());   // a file that failed to save: its toast, till a save goes through
   currentRef.current = current;
 
   useEffect(() => writeStored("paperboat.theme", theme), [theme]);
@@ -144,8 +147,16 @@ export function App() {
     } else if (e.type === "variables") setVariables(e.variables);
     else if (e.type === "figures") reloadFigures();
     else if (e.type === "debug") stopped(e.paused as Paused | null);
-    else if (e.type === "session") { setSession(e.state); setPeekVersion((v) => v + 1); }
-  }), [reload, reloadFigures, load]);
+    else if (e.type === "session") {
+      setSession(e.state); setPeekVersion((v) => v + 1);
+      // the session starts in the background (the first time in a folder it adds JulixPlot too): one toast, working to its end
+      if (e.state === "starting") starting.current ??= show({ title: "Starting Julia", detail: "runs wait for it", state: "working" });
+      else if (starting.current !== null) {
+        show({ id: starting.current, ...(e.state === "running" ? { title: "Julia is ready", state: "done" } : { title: "Julia didn't start", detail: "the Console has the error", state: "failed" }) });
+        starting.current = null;
+      }
+    }
+  }), [reload, reloadFigures, load, show]);
 
   const running = runs.some((r) => r.state === "running" || r.state === "queued");
   const now = runs.find((r) => r.state === "running");   // the run the session is on; queued ones wait behind it
@@ -154,8 +165,15 @@ export function App() {
   // a deep link opens a file: /?open=<path in the folder> (the Launcher and other apps use it)
   useEffect(() => { const p = new URLSearchParams(location.search).get("open"); if (p) open(p); }, [open]);
   const save = useCallback(async (p: string, text: string) => {
-    try { await api.save(p, text); setDraft((d) => (d === text ? null : d)); setDoc((d) => (d && d.path === p ? { ...d, text } : d)); } catch (e) { fail(e); }
-  }, [fail]);
+    const id = unsaved.current.get(p);
+    try {
+      await api.save(p, text); setDraft((d) => (d === text ? null : d)); setDoc((d) => (d && d.path === p ? { ...d, text } : d));
+      if (id !== undefined) { unsaved.current.delete(p); show({ id, title: `${base(p)} saved`, state: "done" }); }
+    } catch (e) {
+      // autosave retries on the next pause; one toast per file, not one per try
+      unsaved.current.set(p, show({ id, title: `Couldn't save ${base(p)}`, detail: `${(e as Error).message ?? e} · the text stays in the editor`, state: "failed" }));
+    }
+  }, [show]);
   // a close never loses work: only the shown tab can be unsaved, and it is saved before it goes
   const closeTabs = (paths: string[]) => {
     if (current && paths.includes(current) && draft !== null && !doc?.readOnly) save(current, draft);
@@ -176,7 +194,7 @@ export function App() {
   const command = useCallback((c: DebugCommand) => { api.debug(c).catch(fail); }, [fail]);
   const run = useCallback((kind: "file" | "cell" | "line", code?: string, line = 1, debug = false) => {
     if (kind === "file" && paused && !debug) return command("continue");   // F5 while a debug run waits goes on
-    if (!current || typeOf(current) !== "jl") return show({ title: "Nothing to run", detail: "Open a .jl script first.", state: "failed" });
+    if (!current || typeOf(current) !== "jl") return;   // as the Run key: off, and its hover says why
     if (draft !== null && !doc?.readOnly) save(current, draft);
     const dbg = debug ? { debug: true, breakpoints: bps[current] ?? [] } : {};
     api.run(kind, kind === "file" ? { path: current, code: text, ...dbg } : { path: current, code, line, ...dbg }).catch(fail);
@@ -212,7 +230,7 @@ export function App() {
     title: "New script", label: "Name", value: "untitled.jl", ok: "Create",
     run: (name) => api.create(dir ? `${dir}/${name.endsWith(".jl") ? name : `${name}.jl`}` : name.endsWith(".jl") ? name : `${name}.jl`, NEW_SCRIPT).then((r) => { reload(); open(r.path); }, fail),
   }), [current, open, reload, fail]);
-  const copyIn = useCallback((p: string) => api.copy(p, base(p)).then((r) => { reload(); open(r.path); show({ title: "Copied to your folder", detail: `${r.path}: yours to change`, state: "done" }); }, fail), [open, reload, show, fail]);
+  const copyIn = useCallback((p: string) => api.copy(p, base(p)).then((r) => { reload(); open(r.path); }, fail), [open, reload, fail]);
   const copy = useCallback((t: string, what: string) => navigator.clipboard.writeText(t).then(() => show({ title: `${what} copied`, detail: t.length > 80 ? `${t.slice(0, 80)}…` : t, state: "done" }), fail), [show, fail]);
 
   const newFolder = (dir: string) => setAsk({ title: "New folder", label: "Name", ok: "Create", run: (n) => api.mkdir(dir ? `${dir}/${n}` : n).then(reload, fail) });
@@ -222,7 +240,7 @@ export function App() {
   };
   const rename = (p: string) => setAsk({ title: "Rename", label: "Path in the folder", value: p, ok: "Rename", run: (to) => to !== p && api.move(p, to).then(() => { reload(); retab(p, to); }, fail) });
   const trash = (p: string) => setAsk({ title: `Move ${p} to the trash?`, danger: true, ok: "Move to trash", text: "It goes to .julix/trash in the folder, so it can come back.",
-    run: () => api.trash(p).then(() => { reload(); close(p); show({ title: "Moved to the trash", detail: `${p} · .julix/trash`, state: "done" }); }, fail) });
+    run: () => api.trash(p).then(() => { reload(); close(p); }, fail) });
   const into = (e?: FileEntry) => (!e ? "" : e.kind === "folder" ? e.path : dirOf(e.path));
   const treeActions: FileActions = {
     onOpen: (e) => e.kind === "file" && open(e.path),
@@ -348,6 +366,7 @@ export function App() {
           <RuntimesKey running={running} starting={session === "starting"} version={peekVersion} onPackages={() => setDialog("packages")} />
           <PanelsKey panels={PANELS.map((p) => ({ id: p.side, label: p.name, keys: p.keys, shown: !hidden[p.side] }))} layout={LAYOUT} onToggle={(id) => toggle(id as Side)} />
           <span className="lsep" />
+          <Notifications {...notes} />
           <ThemePicker theme={theme} onChange={setTheme} />
         </span>
       </header>
@@ -456,7 +475,7 @@ export function App() {
           </div>
         </Dialog>
       )}
-      {dialog === "packages" && <Packages julia={julia?.version} onClose={() => setDialog(null)} onDone={(what) => show({ title: what, detail: "using it in the session picks it up", state: "done" })} />}
+      {dialog === "packages" && <Packages julia={julia?.version} onClose={() => setDialog(null)} notify={show} />}
       <Toasts toasts={toasts} onDismiss={dismiss} />
     </div>
   );
