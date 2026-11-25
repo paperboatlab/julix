@@ -11,10 +11,15 @@ export type Run = {
   id: string; kind: Kind; source: string; line: number; code: string;
   state: "queued" | "running" | "done" | "failed"; started?: string; ms?: number; outputs: Output[];
   runtime?: { name: string; version: string; backend: string };
+  debug?: boolean;
 };
 export type Values = { kind: "scalar"; value: number } | { kind: "vector"; values: number[] } | { kind: "matrix"; rows: number[][] };
 export type Package = { name: string; version: string };
 export type Variable = { name: string; type: string; summary: string; size?: number };
+export type Breakpoint = { line: number; condition?: string; enabled?: boolean };
+/** Where a debug run waits (paperboat docs/runtime.md "Debugging"): frames innermost first, the top one's locals. */
+export type Paused = { run: string; source: string; reason: string; line: number; frames: { id: number; name: string; line: number }[]; locals: Variable[] };
+export type DebugCommand = "continue" | "over" | "into" | "out" | "pause" | "stop";
 export type Figure = { run: string; n: number; mime: string; source: string; kind: Kind; time: string; thumb?: boolean };
 export type Peek = {
   sessions: { id: string; backend: string; state: string; uptime_s?: number; idle_s?: number; stats: { cpu_percent: number; memory_bytes: number } | null;
@@ -41,7 +46,12 @@ export const api = {
   copy: (from: string, to: string) => call<{ path: string }>("POST", "/api/copy", { from, to }),
   trash: (p: string) => call("POST", "/api/trash", { path: p }),
   reveal: (p: string) => call("POST", "/api/reveal", { path: p }),
-  run: (kind: Kind, args: { path?: string; code?: string; line?: number }) => call<Run>("POST", "/api/run", { kind, ...args }),
+  run: (kind: Kind, args: { path?: string; code?: string; line?: number; debug?: boolean; breakpoints?: Breakpoint[] }) => call<Run>("POST", "/api/run", { kind, ...args }),
+  paused: () => call<{ paused: Paused | null }>("GET", "/api/debug"),
+  debug: (command: DebugCommand) => call<{ running: boolean }>("POST", "/api/debug", { command }),
+  setBreakpoints: (file: string, breakpoints: Breakpoint[]) => call("POST", "/api/debug", { command: "breakpoints", file, breakpoints }),
+  frameLocals: (frame: number) => call<{ locals: Variable[] }>("POST", "/api/debug", { command: "locals", frame }),
+  evalIn: (frame: number, code: string) => call<{ type: string; summary: string }>("POST", "/api/debug", { command: "eval", frame, code }),
   interrupt: () => call("POST", "/api/interrupt", {}),
   restart: () => call("POST", "/api/restart", {}),
   variables: () => call<Variable[]>("GET", "/api/variables"),

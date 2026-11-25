@@ -9,13 +9,14 @@ import {
 import { EditorSettingsKey, useEditorSettings, type EditorPos } from "@paperboatlab/ui/editor";
 import { FileTree, fileIconFor, type FileActions, type FileEntry } from "@paperboatlab/ui/files";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, listen, session as juliaSession, type Entry, type Figure, type Run, type Variable } from "./api.ts";
+import { api, listen, session as juliaSession, type Breakpoint, type DebugCommand, type Entry, type Figure, type Paused, type Run, type Variable } from "./api.ts";
 import { cellAt, cells } from "./cells.ts";
 import { Code } from "./Code.tsx";
 import { Console } from "./Console.tsx";
 import { RuntimesKey } from "./Keys.tsx";
 import { Packages } from "./Packages.tsx";
-import { Workspace, type FigureRef } from "./Workspace.tsx";
+import { Workspace, type FigureRef, type WorkspaceTab } from "./Workspace.tsx";
+import { Debug, STEPS } from "./Debug.tsx";
 import { applyRun, type Result } from "./results.ts";
 import { FIGURE, Figure as FigurePane } from "./figure/Figure.tsx";
 
@@ -71,7 +72,11 @@ export function App() {
   const [figures, setFigures] = useState<Figure[]>([]);
   const [shown, setShown] = useState<FigureRef | null>(null);
   const [results, setResults] = useState<Record<string, Result[]>>({});   // per file: what its lines made when they last ran
-  const [wtab, setWtab] = useState<"vars" | "figs">("vars");
+  const [wtab, setWtab] = useState<WorkspaceTab>("vars");
+  // the debugger: breakpoints per file (kept in the browser), and where a debug run waits
+  const [bps, setBps] = useState<Record<string, Breakpoint[]>>(() => readStored("julix.breakpoints", (v): v is Record<string, Breakpoint[]> => !!v && typeof v === "object") ?? {});
+  const [paused, setPaused] = useState<Paused | null>(null);
+  useEffect(() => writeStored("julix.breakpoints", bps), [bps]);
   const [resetSeq, setResetSeq] = useState(0);
   // the figure pane takes a share of the window (a figure needs room); the gutter to the editor sizes it
   const figWidth = () => Math.round(Math.min(900, Math.max(420, innerWidth * 0.36)));
@@ -99,6 +104,7 @@ export function App() {
     reload(); reloadFigures();
     api.variables().then(setVariables, () => {});
     api.runs().then((rs) => { setRuns(rs); setResults(rs.reduce(applyRun, {})); }, () => {});
+    api.paused().then((r) => { setPaused(r.paused); if (r.paused) setWtab("debug"); }, () => {});
   }, [reload, reloadFigures, fail]);
 
   const load = useCallback((p: string | null) => {
@@ -124,6 +130,11 @@ export function App() {
       }
     } else if (e.type === "variables") setVariables(e.variables);
     else if (e.type === "figures") reloadFigures();
+    else if (e.type === "debug") {
+      const p = e.paused as Paused | null;
+      setPaused(p);
+      if (p) { setWtab("debug"); setHidden((h) => (h.r ? { ...h, r: false } : h)); if (p.source !== currentRef.current) open(p.source); }
+    }
     else if (e.type === "session") { setSession(e.state); setPeekVersion((v) => v + 1); }
   }), [reload, reloadFigures, load]);
 
@@ -150,12 +161,24 @@ export function App() {
   }, [draft, current, doc, save]);
 
   const text = draft ?? doc?.text ?? "";
-  const run = useCallback((kind: "file" | "cell" | "line", code?: string, line = 1) => {
+  const debugging = runs.some((r) => r.debug && (r.state === "running" || r.state === "queued"));
+  const command = useCallback((c: DebugCommand) => { api.debug(c).catch(fail); }, [fail]);
+  const run = useCallback((kind: "file" | "cell" | "line", code?: string, line = 1, debug = false) => {
+    if (kind === "file" && paused && !debug) return command("continue");   // F5 while a debug run waits goes on
     if (!current || typeOf(current) !== "jl") return show({ title: "Nothing to run", detail: "Open a .jl script first.", state: "failed" });
     if (draft !== null && !doc?.readOnly) save(current, draft);
-    api.run(kind, kind === "file" ? { path: current, code: text } : { path: current, code, line }).catch(fail);
+    const dbg = debug ? { debug: true, breakpoints: bps[current] ?? [] } : {};
+    api.run(kind, kind === "file" ? { path: current, code: text, ...dbg } : { path: current, code, line, ...dbg }).catch(fail);
     setHidden((h) => (h.b ? { ...h, b: false } : h));
-  }, [current, draft, doc, text, save, show, fail]);
+  }, [current, draft, doc, text, save, show, fail, paused, command, bps]);
+  const setBreakpoints = useCallback((path: string, list: Breakpoint[]) => {
+    setBps((m) => { const n = { ...m, [path]: list }; if (!list.length) delete n[path]; return n; });
+    if (debugging) api.setBreakpoints(path, list).catch(() => {});   // the run that's going takes them at once
+  }, [debugging]);
+  const toggleBreakpoint = useCallback((path: string, line: number) => {
+    const list = bps[path] ?? [];
+    setBreakpoints(path, list.some((b) => b.line === line) ? list.filter((b) => b.line !== line) : [...list, { line, enabled: true }].sort((a, b) => a.line - b.line));
+  }, [bps, setBreakpoints]);
   const runConsole = useCallback((code: string) => { api.run("console", { code }).catch(fail); }, [fail]);
   const runCellAtCursor = () => { const c = cellAt(text, cursor.line); if (c) run("cell", c.code, c.cell.from); };
 
@@ -221,6 +244,9 @@ export function App() {
       if (mod && e.altKey && k === "f") { e.preventDefault(); toggle("f"); return; }
       if (mod && k === "j") { e.preventDefault(); toggle("b"); return; }
       if (mod && e.key === ",") { e.preventDefault(); setDialog("settings"); return; }
+      if (e.key === "F5" && mod && !e.defaultPrevented) { e.preventDefault(); run("file", undefined, 1, true); return; }
+      if (e.key === "F5" && e.shiftKey && debugging) { e.preventDefault(); command("stop"); return; }
+      if (paused && (e.key === "F10" || e.key === "F11")) { e.preventDefault(); command(e.key === "F10" ? "over" : e.shiftKey ? "out" : "into"); return; }
       if (e.key === "F5" && !e.defaultPrevented) { e.preventDefault(); run("file"); return; }
       if (e.key === "F1") { e.preventDefault(); setDialog("help"); return; }
       if (typing(e.target)) return;
@@ -228,13 +254,14 @@ export function App() {
     };
     addEventListener("keydown", on);
     return () => removeEventListener("keydown", on);
-  }, [toggle, run, newScript]);
+  }, [toggle, run, newScript, paused, debugging, command]);
 
   const searchItems: SearchItem[] = useMemo(() => [
     ...files(tree.files).map((p): SearchItem => ({ id: `f:${p}`, label: base(p), detail: dirOf(p), group: "Files", scope: "Files", icon: typeOf(p) === "jl" ? "file-code" : "file", run: () => open(p) })),
     ...files(tree.examples).map((p): SearchItem => ({ id: `e:${p}`, label: base(p), detail: "Examples · read-only", group: "Files", scope: "Files", icon: "file-code", run: () => open(p) })),
     ...variables.map((v): SearchItem => ({ id: `v:${v.name}`, label: v.name, detail: `${v.type} · ${v.summary.slice(0, 40)}`, group: "Variables", scope: "Variables", icon: "a-variables", run: () => { setWtab("vars"); toggle("r", false); } })),
     ...figures.map((f): SearchItem => ({ id: `g:${f.run}:${f.n}`, label: `Figure ${f.n}`, detail: `${base(f.source)} · ${f.time ? new Date(f.time).toTimeString().slice(0, 5) : ""}`, group: "Figures", scope: "Figures", icon: "file-media", run: () => { setShown({ run: f.run, n: f.n }); toggle("f", false); } })),
+    { id: "c:debug", label: current ? `Debug ${base(current)}` : "Start debugging", detail: "stops at its breakpoints", shortcut: "Ctrl F5", group: "Commands", scope: "Commands", icon: "play", disabled: !current || typeOf(current) !== "jl" || debugging, why: debugging ? "A debug run is going" : "Open a .jl script first", run: () => run("file", undefined, 1, true) },
     { id: "c:run", label: current ? `Run ${base(current)}` : "Run the script", shortcut: "F5", group: "Commands", scope: "Commands", icon: "play", disabled: !current || typeOf(current) !== "jl", why: "Open a .jl script first", run: () => run("file") },
     { id: "c:cell", label: "Run cell", shortcut: "Ctrl Enter", group: "Commands", scope: "Commands", icon: "play", disabled: !doc || typeOf(doc.path) !== "jl", why: "Open a .jl script first", run: runCellAtCursor },
     { id: "c:stop", label: "Interrupt", shortcut: "Ctrl C", group: "Commands", scope: "Commands", icon: "debug-pause", disabled: !running, why: "Nothing is running", run: () => { api.interrupt().catch(fail); } },
@@ -250,7 +277,7 @@ export function App() {
     ...files(tree.examples).map((p): SearchItem => ({ id: `h:${p}`, label: `Example: ${base(p)}`, group: "Help", scope: "Help", icon: "book", run: () => open(p) })),
     { id: "h:about", label: "About Julix", detail: "version, runtime, licence", group: "Help", scope: "Help", icon: "info", run: () => setDialog("about") },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [tree, variables, figures, current, doc, running, hidden, theme, open, run, newScript, copyIn, toggle, fail, show]);
+  ], [debugging, tree, variables, figures, current, doc, running, hidden, theme, open, run, newScript, copyIn, toggle, fail, show]);
 
   // Help (F1): Julia's own docs, from the session (the names it can reach, their docstrings); the shortcuts page
   // is the kit's, from the keys Julix answers
@@ -272,7 +299,10 @@ export function App() {
         <span className="wm">Julix</span>
         <span className="well proj" title={folder?.root}><TypeIcon name="" folder />{folder?.name ?? "…"}</span>
         <span className="bend">
-          {running
+          {paused
+            ? <>{STEPS.filter((s) => s.cmd !== "into" && s.cmd !== "out").map((s) => <Key key={s.cmd} kind={s.cmd === "continue" ? "primary" : undefined}
+                icon={s.cmd === "continue" ? "play" : s.cmd === "stop" ? "debug-stop" : undefined} title={`${s.label} (${s.keys})`} onClick={() => command(s.cmd)}>{s.label}</Key>)}</>
+            : running
             ? <Key busy onClick={() => api.interrupt().catch(fail)} title="Interrupt (Ctrl C in the console)"><Elapsed since={now?.started} /><Icon name="debug-stop" />Stop</Key>
             : <Key kind="primary" icon="play" disabled={!isJl} onClick={() => run("file")} title={isJl ? `Run ${base(current!)} (F5)` : "Open a .jl script to run it"}>Run{isJl && <span className="runwhat">{base(current!)}</span>}</Key>}
           <RuntimesKey running={running} starting={session === "starting"} version={peekVersion} onPackages={() => setDialog("packages")} />
@@ -319,6 +349,7 @@ export function App() {
                   ? <div className="empty"><p>An image: Julix edits scripts and text.</p></div>
                   : <Code key={`${doc.path}:${doc.readOnly}:${doc.v}`} path={doc.path} text={text} readOnly={doc.readOnly} onChange={setDraft}
                       onPos={(p: EditorPos) => setCursor({ line: p.line, col: p.col })} busy={busy?.path === doc.path ? busy : undefined} settings={editor}
+                      breakpoints={bps[doc.path]} onBreakpoint={(l) => toggleBreakpoint(doc.path, l)} stopAt={paused?.source === doc.path ? paused.line : undefined}
                       results={results[doc.path]} variables={variables} onFigure={(run, n) => { setShown({ run, n }); toggle("f", false); }} appTheme={appTheme}
                       session={session === "running" ? juliaSession : undefined}
                       run={{ cell: (c, l) => run("cell", c, l), line: (c, l) => run("line", c, l), file: () => run("file"), save: () => draft !== null && current && save(current, draft) }} />)}
@@ -345,7 +376,9 @@ export function App() {
 
         <Panel name="Workspace" count={julia ? `julia ${julia.version}` : session === "starting" ? "starting…" : ""} side="right" hidden={hidden.r} onHidden={(h) => toggle("r", h)} icon="a-variables" width={300}>
           <Workspace tab={wtab} onTab={setWtab} variables={variables} figures={figures} shown={shown} onCopy={copy} onError={fail}
-            onShow={(f) => { setShown(f); toggle("f", false); }} />
+            onShow={(f) => { setShown(f); toggle("f", false); }} paused={!!paused}
+            debug={<Debug paused={paused} debugging={debugging} current={isJl ? current : null} breakpoints={bps} onStart={() => run("file", undefined, 1, true)}
+              onCommand={command} onBreakpoints={setBreakpoints} onOpen={(p) => open(p)} onError={fail} />} />
         </Panel>
       </main>
 

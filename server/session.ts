@@ -10,6 +10,10 @@ import { Runtime, RuntimeError } from "./runtime.ts";
 import { hasJulixPlot, packages } from "./packages.ts";
 
 export type Kind = "file" | "cell" | "line" | "console";
+/** A breakpoint in a file (paperboat docs/runtime.md "Debugging"): a line, and Julia code that must be true. */
+export type Breakpoint = { line: number; condition?: string; enabled?: boolean };
+/** Where a debug run waits: what the runtime said when it stopped (frames innermost first, the top one's locals). */
+export type Paused = { run: string; source: string; reason: string; line: number; frames: { id: number; name: string; line: number }[]; locals: Variable[] };
 export type Output =
   | { type: "stream"; name: string; text: string }
   | { type: "result"; data: Record<string, string> }
@@ -19,6 +23,7 @@ export type Run = {
   id: string; kind: Kind; source: string; line: number; code: string;
   state: "queued" | "running" | "done" | "failed"; started?: string; ms?: number; outputs: Output[];
   runtime?: { name: string; version: string; backend: string };
+  debug?: boolean;
 };
 export type Variable = { name: string; type: string; summary: string; size?: number };
 export type Figure = { run: string; n: number; mime: string; source: string; kind: Kind; time: string; thumb?: boolean };
@@ -50,6 +55,8 @@ export class Sessions {
   private session?: Promise<Session>;
   private queue: Promise<unknown> = Promise.resolve();
   running?: Run;
+  /** The debug run's stop, while it waits (for a page that opens later than the event). */
+  paused?: Paused;
   /** This session's runs, newest last (the console after a page reload); a new session starts empty. */
   runs: Run[] = [];
   variables: Variable[] = [];
@@ -104,6 +111,7 @@ export class Sessions {
     this.session = undefined;
     this.variables = [];
     this.runs = [];
+    this.paused = undefined;
     p?.then((s) => { s.rt.close(); this.control.call("release", { lease: s.lease.id }).catch(() => {}); }, () => {});
     this.set("stopped");
     this.emit({ type: "variables", variables: [] });
@@ -112,8 +120,8 @@ export class Sessions {
   figuresDir(run?: string) { return path.join(this.folder.root, ".julix", "figures", ...(run ? [run] : [])); }
 
   /** Runs `code` from `source` (a workspace path, or "console") at `line`; runs go one after another. */
-  run(kind: Kind, source: string, code: string, line = 1): Run {
-    const run: Run = { id: runId(), kind, source, line, code, state: "queued", outputs: [] };
+  run(kind: Kind, source: string, code: string, line = 1, debug?: { breakpoints: Breakpoint[] }): Run {
+    const run: Run = { id: runId(), kind, source, line, code, state: "queued", outputs: [], ...(debug ? { debug: true } : {}) };
     this.runs = [...this.runs.slice(-299), run];
     const send = () => this.emit({ type: "run", run });
     send();
@@ -140,7 +148,14 @@ export class Sessions {
         if (s.cwd !== dir) { await s.rt.request("eval", { code: chdir(dir), cell: "julix: the script's folder" }); s.cwd = dir; }
         run.runtime = { name: s.rt.hello!.runtime.name, version: s.rt.hello!.runtime.version, backend: s.lease.backend };
         const label = source === "console" ? "console" : source.replace(/^@examples\//, "examples/");
-        const result = await s.rt.request<{ data: Record<string, string> | null }>("eval", { code: atLine(code, line), cell: label }, (note) => {
+        const args = { code: atLine(code, line), cell: label, ...(debug ? { debug: true, breakpoints: debug.breakpoints } : {}) };
+        const result = await s.rt.request<{ data: Record<string, string> | null; stopped?: boolean }>("eval", args, (note) => {
+          if (note.type === "debug") {
+            this.paused = note.event === "stopped" ? { run: run.id, source, reason: String(note.reason), line: Number(note.line),
+              frames: note.frames as Paused["frames"], locals: note.locals as Variable[] } : undefined;
+            this.emit({ type: "debug", paused: this.paused ?? null, run: run.id });
+            return;
+          }
           if (note.type === "stream") {
             const last = run.outputs.at(-1);
             if (last?.type === "stream" && last.name === note.name) last.text += note.text;
@@ -149,12 +164,14 @@ export class Sessions {
           send();
         });
         if (result?.data && !figure(result.data)) run.outputs.push({ type: "result", data: result.data });
+        if (result?.stopped) run.outputs.push({ type: "stream", name: "stdout", text: "debugging stopped\n" });
         state = "done";
       } catch (e) {
         run.outputs.push({ type: "error", error: e instanceof RuntimeError ? e.error : { type: "julix", message: String((e as Error).message ?? e) } });
         state = "failed";
       }
       run.ms = Date.now() - t0;
+      if (debug) { this.paused = undefined; this.emit({ type: "debug", paused: null, run: run.id, ended: true }); }
       await this.refreshVariables();   // before "done", so a finished run never shows the variables before it
       run.state = state;
       if (figures) fs.writeFileSync(path.join(this.figuresDir(run.id), "run.json"), JSON.stringify({ ...run, outputs: undefined }));
@@ -162,6 +179,15 @@ export class Sessions {
       send();
     });
     return run;
+  }
+
+  /** Steers the debug run at once (never queued behind it): continue, over, into, out, pause, stop,
+   *  breakpoints (a file's, while it runs), locals (of a frame), eval (in a frame). */
+  async debug(command: string, args: Record<string, unknown> = {}) {
+    if (!this.session) return { running: false };
+    const s = await this.session;
+    const label = typeof args.file === "string" ? args.file.replace(/^@examples\//, "examples/") : undefined;
+    return s.rt.request("debug", { command, ...args, ...(label ? { file: label } : {}) });
   }
 
   /** The session's variables, asked after every run (and sent to the page). */

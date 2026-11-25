@@ -5,7 +5,8 @@
 import net from "node:net";
 
 export type Hello = { protocol: string; mode: string; runtime: { name: string; version: string }; ops: string[] };
-export type Note = { type: "stream"; id: number; name: string; text: string } | { type: "display"; id: number; data: Record<string, string> } | { type: "log"; level: string; text: string };
+export type Note = { type: "stream"; id: number; name: string; text: string } | { type: "display"; id: number; data: Record<string, string> } | { type: "log"; level: string; text: string }
+  | { type: "debug"; id: number; event: "stopped" | "resumed"; [k: string]: unknown };
 export type ErrorInfo = { type?: string; message: string; traceback?: string };
 export class RuntimeError extends Error { readonly error: ErrorInfo; constructor(error: ErrorInfo) { super(error.message); this.error = error; } }
 
@@ -51,7 +52,7 @@ export class Runtime {
       this.buf = this.buf.subarray(4 + n);
       if (!m) continue;
       if (m.type === "hello") { this.wait.get(0)?.resolve(m); this.wait.delete(0); continue; }
-      if (m.type === "stream" || m.type === "display") { this.wait.get(m.id)?.note?.(m); continue; }
+      if (m.type === "stream" || m.type === "display" || m.type === "debug") { this.wait.get(m.id)?.note?.(m); continue; }
       if (m.type === "log") { this.onLog(m); continue; }
       const w = this.wait.get(m.id);
       if (!w) continue;
