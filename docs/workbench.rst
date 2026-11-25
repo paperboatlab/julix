@@ -23,6 +23,15 @@ Variables
 
 .. note:: Not written yet: the session's variables, how they update after a run.
 
+Hubs
+----
+
+With Malachite installed, **Connect to a hub…** (in Settings and :kbd:`Ctrl K`) moves Julix into a hub's
+folder: its scripts, data and plots are saved there, and Malachite links them to your notes and runs. The
+bar then shows the hub's name; its menu switches to another hub, makes a new one, opens it in Malachite, or
+disconnects (back to the folder Julix was opened on). Only Julix switches; other apps keep their hub.
+Without Malachite, Julix says nothing about hubs.
+
 Keyboard shortcuts
 ------------------
 

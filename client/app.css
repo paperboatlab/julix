@@ -42,6 +42,8 @@ body { background: var(--surface-ground); color: var(--text); font: 13px/1.45 va
 .bend { margin-left: auto; display: flex; align-items: center; gap: 8px; }
 .lsep { width: 1px; height: 18px; background: var(--line); }
 .bar .proj { margin-left: 8px; }
+.bar .proj-hub { margin-left: 8px; display: inline-flex; }
+.sett .hub-now { margin-right: 10px; }
 .runwhat { font: 400 12px var(--font-mono); color: var(--text-muted); margin-left: 2px; }
 .ws { min-height: 0; display: flex; gap: var(--gutter); }
 .mid { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--gutter); }
