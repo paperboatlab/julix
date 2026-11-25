@@ -17,6 +17,8 @@ the code shows as SVG or PNG becomes a figure, kept per run.
 plots are `@paperboatlab/ui`'s. Next: JulixPlot.jl (interactive figures on the kit's plots) and shared
 variables with Simplicial.
 
+**Docs:** <https://paperboatlab.github.io/apps/julix/> (sources in [`docs/`](docs/))
+
 **Design:** [ARCHITECTURE.md](ARCHITECTURE.md) · **Look:** [@paperboatlab/ui](https://github.com/paperboatlab/paperboat-ui)
 and the rebrand mockup (`agent-docs/rebrand/apps/julix`)
 
@@ -24,6 +26,7 @@ and the rebrand mockup (`agent-docs/rebrand/apps/julix`)
 
 ```text
 server/     the app server (Node 22, TypeScript, no dependencies): the folder, the Julia session, the API
+docs/       the manual (reStructuredText)
 client/     the page (React, @paperboatlab/ui: editor, files, plots), built into dist/
 bin/julix   the command
 examples/   read-only examples, shown in every folder
