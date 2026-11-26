@@ -38,6 +38,7 @@ const base = (p: string) => p.slice(p.lastIndexOf("/") + 1);
 const files = (es: Entry[]): string[] => es.flatMap((e) => (e.kind === "dir" ? files(e.children ?? []) : [e.path]));
 const typeOf = (p: string) => (p.includes(".") ? p.slice(p.lastIndexOf(".") + 1).toLowerCase() : "");
 const IMAGE = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg"]);
+const FILES_W = 250, WORKSPACE_W = 300;   // the side cards' widths (hidden, the kit's 38 px slim bar)
 /** The server's tree as the kit's FileTree takes it: one row per entry, its depth beside it. */
 const rows = (es: Entry[], depth = 0): FileEntry[] =>
   es.flatMap((e) => [{ path: e.path, name: e.name, depth, kind: e.kind === "dir" ? "folder" : "file" } as FileEntry, ...(e.kind === "dir" ? rows(e.children ?? [], depth + 1) : [])]);
@@ -89,8 +90,12 @@ export function App() {
   const [paused, setPaused] = useState<Paused | null>(null);
   useEffect(() => writeStored("julix.breakpoints", bps), [bps]);
   const [resetSeq, setResetSeq] = useState(0);
-  // the figure pane takes a share of the window (a figure needs room); the gutter to the editor sizes it
-  const figWidth = () => Math.round(Math.min(900, Math.max(420, innerWidth * 0.36)));
+  // the figure pane's default: 45% of what Files and Workspace leave the editor and it (less the four 14 px
+  // --gutter around and between), never so much the editor drops under its 320; the gutter to the editor sizes it
+  const figWidth = () => {
+    const both = innerWidth - 4 * 14 - (hidden.l ? 38 : FILES_W) - (hidden.r ? 38 : WORKSPACE_W) - 14;
+    return Math.round(Math.max(320, Math.min(900, both * 0.45, both - 320)));
+  };
   const [figW, setFigW] = useState(() => readStored("julix.figure", (v): v is number => typeof v === "number") ?? figWidth());
   useEffect(() => writeStored("julix.figure", figW), [figW]);
   const [peekVersion, setPeekVersion] = useState(0);
@@ -416,7 +421,7 @@ export function App() {
       </header>
 
       <main className="ws">
-        <Panel name={folder?.name ?? "Files"} count={`${files(tree.files).length}`} side="left" hidden={hidden.l} onHidden={(h) => toggle("l", h)} icon="folder" width={250}
+        <Panel name={folder?.name ?? "Files"} count={`${files(tree.files).length}`} side="left" hidden={hidden.l} onHidden={(h) => toggle("l", h)} icon="folder" width={FILES_W}
           head={<span className="tools"><Key size="sm" kind="quiet" round icon="new-file" label="New script (Ctrl N)" onClick={() => newScript("")} /><Key size="sm" kind="quiet" round icon="new-folder" label="New folder" onClick={() => newFolder("")} /></span>}>
           <FileTree entries={rows(tree.files)} active={current ?? undefined} actions={treeActions} menu={menuFor} ariaLabel="Files"
             labels={{ newFile: "New script", empty: "No files yet: make a script (Ctrl N), or copy an example." }} />
@@ -474,9 +479,9 @@ export function App() {
             </section>
 
             <Panel name={shownFig ? `Figure ${shownFig.n}` : "Figure"} count={shownFig ? base(shownFig.source) : undefined} side="right" hidden={hidden.f} onHidden={(h) => toggle("f", h)} icon="file-media" width={figW} className="figp"
-              head={shownFig && (shownFig.mime === FIGURE
+              head={shownFig && <span className="tools">{shownFig.mime === FIGURE
                 ? <Key size="sm" kind="quiet" onClick={() => setResetSeq((n) => n + 1)} title="Back to the scripted view">Reset view</Key>
-                : <a className="key sm quiet" href={api.figure(shownFig)} download={`${base(shownFig.source).replace(/\.jl$/, "")}-figure-${shownFig.n}.${shownFig.mime === "image/png" ? "png" : "svg"}`} title="Save the figure">Export…</a>)}>
+                : <a className="key sm quiet" href={api.figure(shownFig)} download={`${base(shownFig.source).replace(/\.jl$/, "")}-figure-${shownFig.n}.${shownFig.mime === "image/png" ? "png" : "svg"}`} title="Save the figure">Export…</a>}</span>}>
               <div className="fbody">{shownFig
                 ? <FigurePane f={shownFig} label={`Figure ${shownFig.n} of ${base(shownFig.source)}`} resetSeq={resetSeq} />
                 : <div className="empty"><p>No figure yet. A JulixPlot figure appears here to pan, zoom and orbit; anything else your code shows as SVG or PNG appears as an image.</p></div>}</div>
@@ -487,7 +492,7 @@ export function App() {
             onFigure={(run, n) => { setShown({ run, n }); toggle("f", false); }} />
         </div>
 
-        <Panel name="Workspace" count={julia ? `julia ${julia.version}` : session === "starting" ? "starting…" : ""} side="right" hidden={hidden.r} onHidden={(h) => toggle("r", h)} icon="a-variables" width={300}>
+        <Panel name="Workspace" count={julia ? `julia ${julia.version}` : session === "starting" ? "starting…" : ""} side="right" hidden={hidden.r} onHidden={(h) => toggle("r", h)} icon="a-variables" width={WORKSPACE_W}>
           <Workspace tab={wtab} onTab={setWtab} variables={variables} figures={figures} shown={shown} onCopy={copy} onError={fail}
             onShow={(f) => { setShown(f); toggle("f", false); }} paused={!!paused}
             debug={<Debug paused={paused} debugging={debugging} current={isJl ? current : null} breakpoints={bps} onStart={() => run("file", undefined, 1, true)}

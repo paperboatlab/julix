@@ -32,7 +32,7 @@ export function Workspace({ tab, onTab, variables, figures, shown, onShow, onCop
 
   return (
     <>
-      <div className="wtabs"><Tabs label="Workspace" value={tab} onChange={onTab} tabs={[{ value: "vars", label: "Variables", count: variables.length }, { value: "debug", label: "Debug", count: paused ? "paused" : undefined }, { value: "figs", label: "Figures", count: figures.length }]} /></div>
+      <Tabs label="Workspace" value={tab} onChange={onTab} tabs={[{ value: "vars", label: "Variables", count: variables.length }, { value: "debug", label: "Debug", count: paused ? "paused" : undefined }, { value: "figs", label: "Figures", count: figures.length }]} />
       {tab === "debug" && debug}
       {tab === "vars" && (
         <>
