@@ -43,8 +43,6 @@ export function Figure({ f, label, resetSeq }: { f: FigureRef; label: string; re
     fetch(api.figure(f)).then((r) => r.json()).then((j) => live && setScene(readFigure(j)), (e) => live && setError(String(e.message ?? e)));
     return () => { live = false; };
   }, [key, f.mime]);
-  if (f.mime !== FIGURE) return <div className="screen"><img src={api.figure(f)} alt={label} /></div>;
-  if (error) return <div className="empty"><p>This figure couldn't be read: {error}</p></div>;
   // once drawn, the figure leaves its preview for the Figures list (ponytail: only figures shown here get one)
   const stage = useRef<HTMLDivElement>(null);
   useEffect(() => {
@@ -52,5 +50,8 @@ export function Figure({ f, label, resetSeq }: { f: FigureRef; label: string; re
     const t = setTimeout(() => { const png = stage.current && preview(stage.current); if (png) api.saveThumb(f.run, f.n, png).catch(() => {}); }, 1200);
     return () => clearTimeout(t);
   }, [scene, key, f.thumb]);
+  // the hooks above run on every render: an image figure and a JulixPlot one share this pane
+  if (f.mime !== FIGURE) return <div className="screen"><img src={api.figure(f)} alt={label} /></div>;
+  if (error) return <div className="empty"><p>This figure couldn't be read: {error}</p></div>;
   return <div className="figstage" ref={stage}><FigureView figureKey={key} scene={scene} label={label} resetSeq={resetSeq} /></div>;
 }
