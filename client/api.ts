@@ -15,7 +15,11 @@ export type Run = {
 };
 export type Values = { kind: "scalar"; value: number } | { kind: "vector"; values: number[] } | { kind: "matrix"; rows: number[][] };
 /** A hub Malachite knows (server/hubs.ts, from `paperboat hub list`). */
-export type HubInfo = { id: string; name: string; path: string; shown: string; place: "local" | "google-drive" | "onedrive" | "dropbox" | "icloud"; missing?: boolean; conflicts?: number };
+export type HubInfo = { id: string; name: string; path: string; shown: string; place: "local" | "google-drive" | "onedrive" | "dropbox" | "icloud"; missing?: boolean; conflicts?: number; holds?: string };
+/** What Julix works in (server/main.ts): a folder, a hub, or null (the Start page). */
+export type Workspace = { kind: "folder" | "hub"; root: string; name: string; hub?: string };
+export type Theme = "light" | "dark" | "system";
+export type RecentEntry = { kind: "folder" | "hub" | "file"; path: string; hub?: string; app?: string; at: number };
 export type Package = { name: string; version: string };
 export type Variable = { name: string; type: string; summary: string; size?: number };
 export type Breakpoint = { line: number; condition?: string; enabled?: boolean };
@@ -39,11 +43,21 @@ const q = encodeURIComponent;
 
 export const api = {
   paperboat: () => call<{ version: string | null }>("GET", "/api/paperboat"),
-  folder: () => call<{ name: string; root: string; hub: string | null; version: string; session: "stopped" | "starting" | "running" }>("GET", "/api/folder"),
+  workspace: () => call<{ workspace: Workspace | null; home: string; version: string; session: "stopped" | "starting" | "running" }>("GET", "/api/workspace"),
+  /** Work in a folder (a whole path) or a hub (its id); null: Close, back to Start. */
+  workIn: (to: { kind: "folder"; path: string } | { kind: "hub"; id: string } | { kind: null }) => call<Workspace | null>("POST", "/api/workspace", to),
+  /** A file by its whole path: from outside the workspace, the workspace switches to its folder or hub. */
+  openPath: (path: string) => call<{ workspace: Workspace; path: string }>("POST", "/api/open", { path }),
+  /** Writes a file by its whole path, then opens it as openPath does; `fresh`: never over a file that is there. */
+  saveAs: (path: string, text: string, fresh = false) => call<{ workspace: Workspace; path: string }>("POST", "/api/saveas", { path, text, new: fresh }),
+  recent: () => call<{ version: 1; recent: RecentEntry[] }>("GET", "/api/recent"),
+  /** A file of the workspace opened: first in recent.json. */
+  opened: (path: string) => call("POST", "/api/recent", { path }),
+  clearRecent: () => call("POST", "/api/recent/clear", {}),
+  settings: () => call<{ theme: Theme }>("GET", "/api/settings"),
+  setTheme: (theme: Theme) => call("PUT", "/api/settings", { theme }),
   hubs: () => call<HubInfo[]>("GET", "/api/hubs"),
-  /** Work in this hub's folder; null: Disconnect, back to the folder Julix was opened on. */
-  connect: (id: string | null) => call<{ hub: string | null }>("POST", "/api/hub", { id }),
-  hubNew: (name: string) => call<{ hub: string | null }>("POST", "/api/hubs/new", { name }),
+  hubNew: (name: string) => call<Workspace>("POST", "/api/hubs/new", { name }),
   hubInMalachite: (id: string) => call("POST", "/api/hubs/malachite", { id }),
   tree: () => call<{ files: Entry[]; examples: Entry[] }>("GET", "/api/tree"),
   file: (p: string) => call<{ path: string; text: string; readOnly: boolean }>("GET", `/api/file?path=${q(p)}`),

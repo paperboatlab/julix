@@ -1,16 +1,20 @@
-// Julix's page (agent-docs/rebrand/apps/julix): one window, no rail. The bar (mark, folder, Run / Stop,
-// the runtimes key, the Panels key, the theme); Files at the left; the script and its figure; the
-// Workspace card at the right; the Console below. Settings, help and About are Ctrl K commands; Ctrl K
-// is the only way to search. Everything shown comes from the app server; the files are the record.
+// Julix's page (agent-docs/rebrand/apps/julix, and apps/files for the one file workflow): one window, no rail.
+// The bar (mark, the menu bar, the workspace well, Run / Stop, the runtimes key, the Panels key, the theme, the
+// window keys); Files at the left; the script and its figure; the Workspace card at the right; the Console below.
+// No workspace: the Start page in the bay. Everything shown comes from the app server; the files are the record.
 import {
-  About, AppMark, DebugDock, DEBUG_KEYS, Dialog, HelpWindow, Icon, Key, Menu, Notifications, Panel, PanelsKey, Search, Segmented, Spinner, Split, ThemePicker, Toasts, chordMatches, readStored, typing, useTheme, useToasts, writeStored,
+  About, AppMark, DebugDock, DEBUG_KEYS, Dialog, HelpWindow, Icon, Key, Menu, MenuBar, Notifications, Panel, PanelsKey, SEARCH_CHORD, Search, Segmented, Spinner, Split, ThemePicker, Toasts, WindowKeys, readStored, useShortcuts, useTheme, useToasts, writeStored,
   type Command, type Credit, type HelpProvider, type MenuEntry, type PaneRect, type SearchItem, type Theme,
 } from "@paperboatlab/ui";
 import { EditorSettingsKey, EditorTabs, afterClose, orderTabs, tabMenu, useEditorSettings, type EditorPos } from "@paperboatlab/ui/editor";
 import { FileTree, fileIconFor, type FileActions, type FileEntry } from "@paperboatlab/ui/files";
-import { ConnectHub, HubSelector, type Hub } from "@paperboatlab/ui/hub";
+import { ConnectHub, HubMark, OpenFile, SaveFile, type Hub } from "@paperboatlab/ui/hub";
+import { AskOpen, Start, TypedPath, Unsaved, WorkspaceWell, fileMenu, recentFor, recentMenu, shell, tilde, type RecentEntry } from "@paperboatlab/ui/workspace";
+import { redo, undo } from "@codemirror/commands";
+import { openSearchPanel } from "@codemirror/search";
+import { EditorView } from "@codemirror/view";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, listen, session as juliaSession, type Breakpoint, type DebugCommand, type Entry, type Figure, type HubInfo, type Paused, type Run, type Variable } from "./api.ts";
+import { api, listen, session as juliaSession, type Breakpoint, type DebugCommand, type Entry, type Figure, type HubInfo, type Paused, type Run, type Variable, type Workspace as Place } from "./api.ts";
 import { cellAt, cells } from "./cells.ts";
 import { Code } from "./Code.tsx";
 import { Console } from "./Console.tsx";
@@ -26,6 +30,11 @@ const PANELS: { side: Side; name: string; keys: string }[] = [
   { side: "l", name: "Files", keys: "Ctrl B" }, { side: "f", name: "Figure", keys: "Ctrl Alt F" },
   { side: "b", name: "Console", keys: "Ctrl J" }, { side: "r", name: "Workspace", keys: "Ctrl Alt B" },
 ];
+const CHORDS: Record<Side, Command["chord"]> = { l: { key: "b", ctrl: true }, f: { key: "f", ctrl: true, alt: true }, b: { key: "j", ctrl: true }, r: { key: "b", ctrl: true, alt: true } };
+/** The menu bar (REBRAND "Menu bar"): File, Edit, View, Julix's own Kernel, Help. */
+const MENUS = [{ id: "file", label: "File" }, { id: "edit", label: "Edit" }, { id: "view", label: "View" }, { id: "kernel", label: "Kernel" }, { id: "help", label: "Help" }];
+/** What Julix opens: the pickers' types. */
+const TYPES = ["jl", "mx"];
 /** The window as the Panels key sketches it: files, editor, figure, console, workspace. */
 const LAYOUT: Record<string, PaneRect> = { l: [4, 4, 10, 36], e: [16, 4, 16, 26], f: [34, 4, 12, 26], b: [16, 32, 30, 8], r: [48, 4, 12, 36] };
 type Ask = { title: string; label?: string; value?: string; danger?: boolean; ok: string; text?: string; run: (v: string) => void };
@@ -42,12 +51,26 @@ const FILES_W = 250, WORKSPACE_W = 300;   // the side cards' widths (hidden, the
 /** The server's tree as the kit's FileTree takes it: one row per entry, its depth beside it. */
 const rows = (es: Entry[], depth = 0): FileEntry[] =>
   es.flatMap((e) => [{ path: e.path, name: e.name, depth, kind: e.kind === "dir" ? "folder" : "file" } as FileEntry, ...(e.kind === "dir" ? rows(e.children ?? [], depth + 1) : [])]);
-/** The folder's icon in the bar, in the file tree's folder colour. */
-function FolderIcon() {
+/** A folder's icon, in the file tree's folder colour. */
+function FolderGlyph() {
   const { icon, tone } = fileIconFor("", "folder");
   return <span className="fi" style={{ color: `var(--file-${tone})` }}><Icon name={icon} size={14} /></span>;
 }
-const kitHub = (h: HubInfo): Hub => ({ id: h.id, name: h.name, place: h.place, path: h.shown, missing: h.missing, conflicts: h.conflicts });
+const kitHub = (h: HubInfo): Hub => ({ id: h.id, name: h.name, place: h.place, path: h.shown, missing: h.missing, conflicts: h.conflicts, holds: h.holds });
+/** The entry at a path in the server's tree. */
+const entryAt = (es: Entry[], p: string): Entry | undefined => {
+  for (const e of es) { if (e.path === p) return e; const c = e.children && entryAt(e.children, p); if (c) return c; }
+};
+/** When a file changed: "today 14:12", else the day and time. */
+const day = (ms: number) => {
+  const d = new Date(ms), hm = d.toTimeString().slice(0, 5);
+  return d.toDateString() === new Date().toDateString() ? `today ${hm}` : `${d.toLocaleDateString([], { day: "numeric", month: "short", year: "numeric" })} ${hm}`;
+};
+const size = (n: number) => (n < 1024 ? `${n} B` : n < 1 << 20 ? `${(n / 1024).toFixed(1)} KB` : `${(n / (1 << 20)).toFixed(1)} MB`);
+/** The editor on the page (CodeMirror's view), for the Edit menu. */
+const editorView = () => { const el = document.querySelector<HTMLElement>(".ed .cm-editor"); return el ? EditorView.findFromDOM(el) : null; };
+/** The script's path in the workspace, when a whole path lies inside it. */
+const inside = (root: string, abs: string) => (abs.startsWith(`${root}/`) ? abs.slice(root.length + 1) : null);
 const NEW_SCRIPT = "# A Julia script. F5 runs it; Ctrl Enter runs the cell at the cursor (a cell starts at ##).\n\n## First cell\n";
 
 /** Seconds since a run started, ticking on its own so the whole page doesn't redraw. */
@@ -59,16 +82,20 @@ function Elapsed({ since }: { since?: string }) {
 }
 
 export function App() {
-  const [theme, setTheme] = useState<Theme>(() => readStored("paperboat.theme", isTheme) ?? "system");
+  // the theme every app starts in ($PAPERBOAT_HOME/settings.json; this browser's copy paints the first frame)
+  const [theme, setThemeHere] = useState<Theme>(() => readStored("paperboat.theme", isTheme) ?? "system");
+  const setTheme = useCallback((t: Theme) => { setThemeHere(t); api.setTheme(t).catch(() => {}); }, []);
   const appTheme = useTheme(theme);
   const [editor, setEditor] = useEditorSettings(undefined, "julix.editor");   // ponytail: in localStorage until Julix keeps a settings file
-  const [folder, setFolder] = useState<{ name: string; root: string; version: string } | null>(null);
-  // the hub Julix works in (by id, so a renamed or moved hub is found again), and the hubs Malachite knows:
-  // read when the page opens, and again as the selector, Ctrl K, Settings or the connect dialog opens.
+  // what Julix works in: a folder, a hub, or nothing (the Start page); undefined till the server says
+  const [info, setInfo] = useState<{ workspace: Place | null; home: string; version: string }>();
+  const ws = info?.workspace ?? null;
+  // the hubs Malachite knows: read when the page opens, and again as anything that shows them opens.
   // No Malachite, no hub: with none, nothing on the page mentions hubs.
-  const [hubId, setHubId] = useState<string | null>(() => readStored("julix.hub", (v): v is string => typeof v === "string") ?? null);
   const [hubs, setHubs] = useState<HubInfo[]>([]);
   const readHubs = useCallback(() => api.hubs().then((l) => { setHubs(l); return l; }, () => [] as HubInfo[]), []);
+  const [recent, setRecent] = useState<RecentEntry[]>([]);
+  const readRecent = useCallback(() => api.recent().then((r) => setRecent(r.recent), () => {}), []);
   const [tree, setTree] = useState<{ files: Entry[]; examples: Entry[] }>({ files: [], examples: [] });
   const [tabs, setTabs] = useState<string[]>(() => readStored("julix.tabs", isList) ?? []);
   const [current, setCurrent] = useState<string | null>(() => readStored("julix.tabs", isList)?.[0] ?? null);
@@ -101,7 +128,9 @@ export function App() {
   const [peekVersion, setPeekVersion] = useState(0);
   const [search, setSearch] = useState(false);
   const [ask, setAsk] = useState<Ask | null>(null);
-  const [dialog, setDialog] = useState<"settings" | "about" | "packages" | "help" | "hub" | null>(null);
+  const [dialog, setDialog] = useState<"settings" | "about" | "packages" | "help" | "hub" | "ask" | "open" | "save" | "folder" | "file" | null>(null);
+  // unsaved changes before a file (or the folder or hub holding it) closes: what closes, and what then
+  const [closing, setClosing] = useState<{ what?: string; then: () => void } | null>(null);
   const notes = useToasts();
   const { toasts, show, dismiss } = notes;
   const fail = useCallback((e: unknown) => show({ title: "Couldn't do that", detail: String((e as Error).message ?? e), state: "failed" }), [show]);
@@ -130,30 +159,28 @@ export function App() {
   const reload = useCallback(() => api.tree().then(setTree, fail), [fail]);
   const reloadFigures = useCallback(() => api.figures().then((fs) => { setFigures(fs); setShown((s) => s ?? (fs[0] ? { run: fs[0].run, n: fs[0].n } : null)); }, () => {}), []);
   useEffect(() => {
-    api.folder().then(async (v) => {
-      // back in the hub this page last worked in (the server starts on the folder it was opened on)
-      const want = readStored("julix.hub", (x): x is string => typeof x === "string");
-      const list = want || v.hub ? await readHubs() : (readHubs(), []);   // a plain folder doesn't wait for Malachite
-      if (want && v.hub !== want) {
-        const h = list.find((x) => x.id === want);
-        if (h && !h.missing && await api.connect(want).then(() => true, (e) => { fail(e); return false; })) { switching.current = true; location.reload(); return; }
-        setTabs([]); setCurrent(null);   // the hub's tabs aren't in this folder
-        if (!h) setHubId(null);   // no Malachite, or the hub is off the list: a plain folder again
-      } else if (!want && v.hub && list.length) setHubId(v.hub);   // another page connected this server
-      setFolder(v); setSession(v.session); document.title = `${v.name} · Julix`;
+    readHubs(); readRecent();
+    api.settings().then((v) => setThemeHere(v.theme), () => {});
+    api.workspace().then((v) => {
+      setInfo(v); setSession(v.session);
+      document.title = v.workspace ? `${v.workspace.name} · Julix` : "Julix";
+      if (!v.workspace) return;
+      // the tabs this browser kept belong to the workspace they were opened in
+      if (readStored("julix.root", (x): x is string => typeof x === "string") !== v.workspace.root) { setTabs([]); setCurrent(null); setPinned(new Set()); }
+      writeStored("julix.root", v.workspace.root);
+      reload(); reloadFigures();
+      api.variables().then(setVariables, () => {});
+      api.runs().then((rs) => { setRuns(rs); setResults(rs.reduce(applyRun, {})); }, () => {});
+      api.paused().then((r) => stopped(r.paused), () => {});
     }, fail);
-    reload(); reloadFigures();
-    api.variables().then(setVariables, () => {});
-    api.runs().then((rs) => { setRuns(rs); setResults(rs.reduce(applyRun, {})); }, () => {});
-    api.paused().then((r) => stopped(r.paused), () => {});
-  }, [reload, reloadFigures, readHubs, fail, stopped]);
-  useEffect(() => writeStored("julix.hub", hubId), [hubId]);
+  }, [reload, reloadFigures, readHubs, readRecent, fail, stopped]);
 
   const load = useCallback((p: string | null) => {
     if (!p) { setDoc(null); return; }
     api.file(p).then((d) => { if (currentRef.current === p) { setDoc({ ...d, v: ++copies.current }); setDraft(null); } }, (e) => { setDoc(null); fail(e); });
+    if (!p.startsWith("@")) api.opened(p).catch(() => {});   // first in recent.json
   }, [fail]);
-  useEffect(() => { if (folder) load(current); }, [folder, current, load]);
+  useEffect(() => { if (ws) load(current); }, [ws, current, load]);
 
   // live: files (anyone's changes), runs, the variables, the session
   useEffect(() => listen((e) => {
@@ -173,7 +200,7 @@ export function App() {
     } else if (e.type === "variables") setVariables(e.variables);
     else if (e.type === "figures") reloadFigures();
     else if (e.type === "debug") stopped(e.paused as Paused | null);
-    else if (e.type === "folder" && !switching.current) location.reload();   // another page connected the server elsewhere
+    else if (e.type === "folder" && !switching.current) location.reload();   // another page moved the server to another workspace
     else if (e.type === "session") {
       setSession(e.state); setPeekVersion((v) => v + 1);
       // the session starts in the background (the first time in a folder it adds JulixPlot too): one toast, working to its end
@@ -189,45 +216,114 @@ export function App() {
   const now = runs.find((r) => r.state === "running");   // the run the session is on; queued ones wait behind it
   const busy = now && now.kind !== "console" ? { path: now.source, from: now.line, to: now.line + now.code.split("\n").length - 1 } : undefined;
 
-  // a deep link opens a file: /?open=<path in the folder> (the Launcher and other apps use it)
-  useEffect(() => { const p = new URLSearchParams(location.search).get("open"); if (p) open(p); }, [open]);
+  // a deep link opens a file (the Launcher and other apps use it): /?open=<path in the workspace>, or a whole
+  // path, which brings its folder or hub as File › Open file… does
+  useEffect(() => {
+    const p = new URLSearchParams(location.search).get("open");
+    if (!p) return;
+    if (!/^(\/|~)/.test(p)) { open(p); return; }
+    history.replaceState(null, "", location.pathname);
+    switching.current = true;   // the server may move: this page reloads itself, not on the event
+    api.workspace().then((was) => api.openPath(p).then((r) => {
+      if (was.workspace?.root === r.workspace.root) { switching.current = false; open(r.path); return; }
+      writeStored("julix.root", r.workspace.root); writeStored("julix.tabs", [r.path]); writeStored("julix.pinned", []);
+      location.reload();
+    })).catch((e) => { switching.current = false; fail(e); });
+  }, [open, fail]);
   const save = useCallback(async (p: string, text: string) => {
     const id = unsaved.current.get(p);
     try {
       await api.save(p, text); setDraft((d) => (d === text ? null : d)); setDoc((d) => (d && d.path === p ? { ...d, text } : d));
       if (id !== undefined) { unsaved.current.delete(p); show({ id, title: `${base(p)} saved`, state: "done" }); }
+      return true;
     } catch (e) {
       // autosave retries on the next pause; one toast per file, not one per try
       unsaved.current.set(p, show({ id, title: `Couldn't save ${base(p)}`, detail: `${(e as Error).message ?? e} · the text stays in the editor`, state: "failed" }));
+      return false;
     }
   }, [show]);
-  // a close never loses work: only the shown tab can be unsaved, and it is saved before it goes
+  // only the shown tab can be unsaved (the rest were saved as they were left): before it closes, alone or with
+  // its folder or hub, Unsaved asks: Save, Don't save, Cancel
+  const dirty = !!current && draft !== null && !doc?.readOnly;
+  const guard = (what: string | undefined, then: () => void) => (dirty ? setClosing({ what, then }) : then());
   const closeTabs = (paths: string[]) => {
-    if (current && paths.includes(current) && draft !== null && !doc?.readOnly) save(current, draft);
-    const next = afterClose(tabs, current, paths);
-    setTabs(next.tabs); setCurrent(next.current);
-    setPinned((s) => (paths.some((p) => s.has(p)) ? new Set([...s].filter((p) => !paths.includes(p))) : s));
+    const go = () => {
+      const next = afterClose(tabs, current, paths);
+      setTabs(next.tabs); setCurrent(next.current);
+      setPinned((s) => (paths.some((p) => s.has(p)) ? new Set([...s].filter((p) => !paths.includes(p))) : s));
+    };
+    if (current && paths.includes(current)) guard(undefined, go); else go();
   };
   const close = (p: string) => closeTabs([p]);
-  // connect, switch or disconnect: the typing is saved first, the tabs (this folder's) close, the page reloads
-  const workIn = async (go: () => Promise<{ hub: string | null }>) => {
-    try {
-      if (current && draft !== null && !doc?.readOnly) await api.save(current, draft);
-      switching.current = true;
-      const r = await go();
-      writeStored("julix.hub", r.hub); writeStored("julix.tabs", []); writeStored("julix.pinned", []);
-      location.reload();
-    } catch (e) { switching.current = false; fail(e); }
+
+  // the one file workflow: the server switches the workspace (a folder, a hub, none), the page reloads on it
+  const home = info?.home;
+  const sh = shell();
+  const switchTo = (go: () => Promise<Place | null | { workspace: Place; path: string }>, ask = true) => {
+    const run = async () => {
+      try {
+        switching.current = true;
+        const r = await go();
+        const w = r && "path" in r ? r.workspace : r as Place | null;
+        writeStored("julix.root", w?.root ?? null); writeStored("julix.tabs", r && "path" in r ? [r.path] : []); writeStored("julix.pinned", []);
+        location.reload();
+      } catch (e) { switching.current = false; fail(e); }
+    };
+    if (ask) guard(ws?.kind === "hub" ? "the hub" : "the folder", run); else run();
   };
-  const connectHub = (id: string | null) => workIn(() => api.connect(id));
-  const newHub = () => setAsk({ title: "New hub", label: "Name", ok: "Create", run: (n) => workIn(() => api.hubNew(n)) });
-  const hub = hubId ? hubs.find((h) => h.id === hubId) : undefined;
+  /** A file by its whole path (`~` the home folder): in the workspace it opens; from outside, the workspace follows it. */
+  const openAbs = (p: string) => {
+    const abs = home && /^~(\/|$)/.test(p.trim()) ? home + p.trim().slice(1) : p.trim();
+    const rel = ws && inside(ws.root, abs);
+    if (rel) open(rel); else switchTo(() => api.openPath(abs));
+  };
+  const pickLocal = () => {
+    setDialog(null);
+    if (sh) sh.pickFile(TYPES, "Open a script").then((p) => p && openAbs(p), fail); else setDialog("file");
+  };
+  // Open file…: in a hub, our picker over it; outside, with Malachite, ask (a local file, or a hub); else the local file
+  const openFile = () => { if (ws?.kind === "hub") setDialog("open"); else if (hubs.length) { readHubs(); setDialog("ask"); } else pickLocal(); };
+  const openFolder = () => {
+    if (sh) sh.pickFolder("Open folder").then((p) => p && switchTo(() => api.workIn({ kind: "folder", path: p })), fail); else setDialog("folder");
+  };
+  const connect = () => { readHubs(); setDialog("hub"); };
+  const toHub = (id: string) => switchTo(() => api.workIn({ kind: "hub", id }));
+  const closeWorkspace = () => switchTo(() => api.workIn({ kind: null }));
+  const newHub = () => setAsk({ title: "New hub", label: "Name", ok: "Create", run: (n) => switchTo(() => api.hubNew(n)) });
+  const openRecent = (e: RecentEntry) => {
+    if (e.kind === "file") openAbs(e.path);
+    else if (e.kind === "hub" && e.hub && hubs.some((h) => h.id === e.hub)) toHub(e.hub);   // by its id: a moved hub is found
+    else switchTo(() => api.workIn({ kind: "folder", path: e.path }));   // the server knows a hub's folder
+  };
+  const recentItems = recentMenu(recentFor({ version: 1, recent }, "julix", { hubs: hubs.length > 0 }), openRecent,
+    () => { api.clearRecent().then(() => setRecent([]), fail); });
+  const hub = ws?.kind === "hub" ? hubs.find((h) => h.id === ws.hub) : undefined;
+  // the hub's picker needs the hub: before the list is read, what the workspace says of it
+  const pickHub: Hub = hub ? kitHub(hub) : { id: ws?.hub ?? "", name: ws?.name ?? "", place: "local", path: ws ? tilde(ws.root, home) : "" };
+  const saveNow = () => { if (current && dirty) save(current, draft!); };
+  // Save as…: in a hub, our picker over it; in a Paperboat window, the system's dialog; in a browser, a download
+  const saveAs = () => {
+    if (!current) return;
+    const body = draft ?? doc?.text ?? "";
+    if (ws?.kind === "hub") return setDialog("save");
+    if (sh) {
+      sh.pickSave(base(current), TYPES, "Save as").then((p) => {
+        const rel = p && ws && inside(ws.root, p);
+        if (rel) api.save(rel, body).then(() => { reload(); open(rel); }, fail);
+        else if (p) switchTo(() => api.saveAs(p, body), false);   // the old file keeps what it had on disk
+      }, fail);
+      return;
+    }
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([body], { type: "text/plain" })); a.download = base(current); a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  };
   // save what is typed after a pause; the file is the record
   useEffect(() => {
-    if (draft === null || !current || doc?.readOnly) return;
+    if (draft === null || !current || doc?.readOnly || closing) return;   // not while Unsaved asks
     const t = setTimeout(() => save(current, draft), 700);
     return () => clearTimeout(t);
-  }, [draft, current, doc, save]);
+  }, [draft, current, doc, save, closing]);
 
   const text = draft ?? doc?.text ?? "";
   const debugging = runs.some((r) => r.debug && (r.state === "running" || r.state === "queued"));
@@ -266,10 +362,19 @@ export function App() {
   const runConsole = useCallback((code: string) => { api.run("console", { code }).catch(fail); }, [fail]);
   const runCellAtCursor = () => { const c = cellAt(text, cursor.line); if (c) run("cell", c.code, c.cell.from); };
 
-  const newScript = useCallback((dir = current && !current.startsWith("@") ? dirOf(current) : "") => setAsk({
-    title: "New script", label: "Name", value: "untitled.jl", ok: "Create",
-    run: (name) => api.create(dir ? `${dir}/${name.endsWith(".jl") ? name : `${name}.jl`}` : name.endsWith(".jl") ? name : `${name}.jl`, NEW_SCRIPT).then((r) => { reload(); open(r.path); }, fail),
-  }), [current, open, reload, fail]);
+  // New script: in the workspace, a name; with none, where it goes (the system's dialog, or a typed path)
+  const newScript = (dir = current && !current.startsWith("@") ? dirOf(current) : "") => {
+    if (!ws) {
+      if (sh) sh.pickSave("untitled.jl", ["jl"], "New script").then((p) => p && switchTo(() => api.saveAs(p, NEW_SCRIPT)), fail);
+      else setAsk({ title: "New script", label: "Whole path", value: `${home ? "~" : ""}/untitled.jl`, ok: "Create",
+        run: (p) => switchTo(() => api.saveAs(home && /^~(\/|$)/.test(p) ? home + p.slice(1) : p, NEW_SCRIPT, true)) });
+      return;
+    }
+    setAsk({
+      title: "New script", label: "Name", value: "untitled.jl", ok: "Create",
+      run: (name) => api.create(dir ? `${dir}/${name.endsWith(".jl") ? name : `${name}.jl`}` : name.endsWith(".jl") ? name : `${name}.jl`, NEW_SCRIPT).then((r) => { reload(); open(r.path); }, fail),
+    });
+  };
   const copyIn = useCallback((p: string) => api.copy(p, base(p)).then((r) => { reload(); open(r.path); }, fail), [open, reload, fail]);
   const copy = useCallback((t: string, what: string) => navigator.clipboard.writeText(t).then(() => show({ title: `${what} copied`, detail: t.length > 80 ? `${t.slice(0, 80)}…` : t, state: "done" }), fail), [show, fail]);
 
@@ -333,53 +438,65 @@ export function App() {
     onCopyPath: (e) => { copy(e.path.replace(/^@examples\//, "examples/"), "Path"); },
   };
 
-  // keys: Ctrl K search, Ctrl B / Ctrl Alt B / Ctrl Alt F / Ctrl J the panels, Ctrl N a script, F5 run, Ctrl , settings
+  // the run and debug keys (the editor has its own: Ctrl Enter, Shift Enter); every chord with Ctrl is the registry's
   useEffect(() => {
     const on = (e: KeyboardEvent) => {
-      const mod = e.ctrlKey || e.metaKey, k = e.key.toLowerCase();
-      if (chordMatches({ key: "k", ctrl: true }, e)) { e.preventDefault(); setSearch((s) => !s); return; }
-      if (mod && k === "b") { e.preventDefault(); toggle(e.altKey ? "r" : "l"); return; }
-      if (mod && e.altKey && k === "f") { e.preventDefault(); toggle("f"); return; }
-      if (mod && k === "j") { e.preventDefault(); toggle("b"); return; }
-      if (mod && e.key === ",") { e.preventDefault(); setDialog("settings"); return; }
+      const mod = e.ctrlKey || e.metaKey;
       if (e.key === "F5" && mod && !e.defaultPrevented) { e.preventDefault(); run("file", undefined, 1, true); return; }
       if (e.key === "F5" && e.shiftKey && debugging) { e.preventDefault(); command("stop"); return; }
       if (e.key === "F6" && debugging && !paused) { e.preventDefault(); command("pause"); return; }
       if (paused && (e.key === "F10" || e.key === "F11")) { e.preventDefault(); command(e.key === "F10" ? "over" : e.shiftKey ? "out" : "into"); return; }
       if (e.key === "F5" && !e.defaultPrevented) { e.preventDefault(); run("file"); return; }
-      if (e.key === "F1") { e.preventDefault(); setDialog("help"); return; }
-      if (typing(e.target)) return;
-      if (mod && k === "n") { e.preventDefault(); newScript(); }
+      if (e.key === "F1") { e.preventDefault(); setDialog("help"); }
     };
     addEventListener("keydown", on);
     return () => removeEventListener("keydown", on);
-  }, [toggle, run, newScript, paused, debugging, command]);
+  }, [run, paused, debugging, command]);
 
-  const searchItems: SearchItem[] = useMemo(() => [
+  // the command registry: the menu bar, the command search and the shortcuts read it (REBRAND "Menu bar")
+  const view = editorView;
+  const noScript = { enabled: !!current && typeOf(current) === "jl", why: "open a .jl script first" };
+  const examples = files(tree.examples);
+  const commands: Command[] = [
+    ...fileMenu({
+      noun: "script", workspace: ws, file: !!current, hubs: hubs.length > 0, recent: recentItems,
+      onNew: () => newScript(), onOpenFile: openFile, onOpenFolder: openFolder, onConnect: connect, onSave: saveNow, onSaveAs: saveAs,
+      onCloseFile: () => { if (current) close(current); }, onCloseWorkspace: closeWorkspace, onSettings: () => setDialog("settings"),
+    }),
+    { id: "edit.undo", label: "Undo", menu: "edit", group: "history", shortcut: "Ctrl Z", enabled: !!doc && !doc.readOnly, why: "no script open", run: () => { const v = view(); if (v) undo(v); } },
+    { id: "edit.redo", label: "Redo", menu: "edit", group: "history", shortcut: "Ctrl Shift Z", enabled: !!doc && !doc.readOnly, why: "no script open", run: () => { const v = view(); if (v) redo(v); } },
+    { id: "edit.find", label: "Find and replace…", menu: "edit", group: "find", shortcut: "Ctrl F", enabled: !!doc, why: "no script open", run: () => { const v = view(); if (v) openSearchPanel(v); } },
+    { id: "edit.copyin", label: "Copy this example to my folder", menu: "edit", group: "examples", icon: "copy", enabled: !!current?.startsWith("@examples/"), why: "open an example first", run: () => { if (current) copyIn(current); } },
+    { id: "view.search", label: "Search…", menu: "view", group: "search", shortcut: "Ctrl K", chord: SEARCH_CHORD, quiet: true, run: () => setSearch((x) => !x) },
+    ...PANELS.map((p): Command => ({ id: `view.${p.name.toLowerCase()}`, label: p.name, menu: "view", group: "panels", shortcut: p.keys, chord: CHORDS[p.side], checked: !hidden[p.side], run: () => toggle(p.side) })),
+    ...(["light", "dark", "system"] as Theme[]).map((t): Command => ({ id: `view.theme.${t}`, label: t[0].toUpperCase() + t.slice(1), menu: "view", group: "theme", checked: theme === t, run: () => setTheme(t) })),
+    { id: "kernel.run", label: current ? `Run ${base(current)}` : "Run the script", menu: "kernel", group: "run", shortcut: "F5", icon: "play", ...noScript, run: () => run("file") },
+    { id: "kernel.cell", label: "Run cell", menu: "kernel", group: "run", shortcut: "Ctrl Enter", ...noScript, run: () => runCellAtCursor() },
+    { id: "kernel.debug", label: current ? `Debug ${base(current)}` : "Start debugging", menu: "kernel", group: "run", shortcut: "Ctrl F5", ...noScript,
+      ...(debugging ? { enabled: false, why: "a debug run is going" } : {}), run: () => run("file", undefined, 1, true) },
+    { id: "kernel.interrupt", label: "Interrupt", menu: "kernel", group: "session", icon: "debug-pause", enabled: running, why: "nothing is running", run: () => { api.interrupt().catch(fail); } },
+    { id: "kernel.restart", label: "Restart the Julia session", menu: "kernel", group: "session", icon: "debug-restart", enabled: !!ws, why: "no folder open", run: () => { api.restart().catch(fail); } },
+    { id: "kernel.packages", label: "Julia packages…", menu: "kernel", group: "packages", icon: "package", enabled: !!ws, why: "no folder open", run: () => setDialog("packages") },
+    { id: "help.docs", label: "Julia's docs", menu: "help", group: "docs", shortcut: "F1", icon: "question", run: () => setDialog("help") },
+    ...(examples.length ? [{ id: "help.examples", label: "Examples", menu: "help", group: "docs", icon: "book", quiet: true, run: () => {},
+      sub: examples.map((p): MenuEntry => ({ id: `ex:${p}`, label: base(p), run: () => open(p) })) } as Command] : []),
+    { id: "help.manual", label: "Julix on GitHub", menu: "help", group: "docs", icon: "link-external", run: () => { window.open("https://github.com/paperboatlab/julix#readme", "_blank", "noopener"); } },
+    { id: "help.about", label: "About Julix", menu: "help", group: "about", icon: "info", run: () => setDialog("about") },
+  ];
+  useShortcuts(commands);
+  const searchItems: SearchItem[] = [
     ...files(tree.files).map((p): SearchItem => ({ id: `f:${p}`, label: base(p), detail: dirOf(p), group: "Files", scope: "Files", icon: typeOf(p) === "jl" ? "file-code" : "file", run: () => open(p) })),
-    ...files(tree.examples).map((p): SearchItem => ({ id: `e:${p}`, label: base(p), detail: "Examples · read-only", group: "Files", scope: "Files", icon: "file-code", run: () => open(p) })),
+    ...examples.map((p): SearchItem => ({ id: `e:${p}`, label: base(p), detail: "Examples · read-only", group: "Files", scope: "Files", icon: "file-code", run: () => open(p) })),
     ...variables.map((v): SearchItem => ({ id: `v:${v.name}`, label: v.name, detail: `${v.type} · ${v.summary.slice(0, 40)}`, group: "Variables", scope: "Variables", icon: "a-variables", run: () => { setWtab("vars"); toggle("r", false); } })),
     ...figures.map((f): SearchItem => ({ id: `g:${f.run}:${f.n}`, label: `Figure ${f.n}`, detail: `${base(f.source)} · ${f.time ? new Date(f.time).toTimeString().slice(0, 5) : ""}`, group: "Figures", scope: "Figures", icon: "file-media", run: () => { setShown({ run: f.run, n: f.n }); toggle("f", false); } })),
-    { id: "c:debug", label: current ? `Debug ${base(current)}` : "Start debugging", detail: "stops at its breakpoints", shortcut: "Ctrl F5", group: "Commands", scope: "Commands", icon: "play", disabled: !current || typeOf(current) !== "jl" || debugging, why: debugging ? "A debug run is going" : "Open a .jl script first", run: () => run("file", undefined, 1, true) },
-    { id: "c:run", label: current ? `Run ${base(current)}` : "Run the script", shortcut: "F5", group: "Commands", scope: "Commands", icon: "play", disabled: !current || typeOf(current) !== "jl", why: "Open a .jl script first", run: () => run("file") },
-    { id: "c:cell", label: "Run cell", shortcut: "Ctrl Enter", group: "Commands", scope: "Commands", icon: "play", disabled: !doc || typeOf(doc.path) !== "jl", why: "Open a .jl script first", run: runCellAtCursor },
-    { id: "c:stop", label: "Interrupt", shortcut: "Ctrl C", group: "Commands", scope: "Commands", icon: "debug-pause", disabled: !running, why: "Nothing is running", run: () => { api.interrupt().catch(fail); } },
-    { id: "c:restart", label: "Restart the Julia session", detail: "clears the variables", group: "Commands", scope: "Commands", icon: "debug-restart", run: () => { api.restart().catch(fail); } },
-    { id: "c:new", label: "New script", shortcut: "Ctrl N", group: "Commands", scope: "Commands", icon: "new-file", run: () => newScript() },
-    { id: "c:copyin", label: "Copy this example to my folder", group: "Commands", scope: "Commands", icon: "copy", disabled: !current?.startsWith("@examples/"), why: "Open an example first", run: () => current && copyIn(current) },
-    ...PANELS.map((p): SearchItem => ({ id: `p:${p.side}`, label: `${hidden[p.side] ? "Show" : "Hide"} ${p.name === "Figure" ? "the Figure" : p.name === "Console" ? "the Console" : p.name}`, shortcut: p.keys, group: "Commands", scope: "Commands", icon: "command", run: () => toggle(p.side) })),
-    ...(["light", "dark", "system"] as Theme[]).map((t): SearchItem => ({ id: `t:${t}`, label: `Theme: ${t}`, group: "Commands", scope: "Commands", icon: `theme-${t}`, disabled: theme === t, why: "It is the theme now", run: () => setTheme(t) })),
-    ...(hubs.length ? [{ id: "s:hub", label: "Connect to a hub…", detail: "Julix keeps its scripts, data and plots in a Malachite hub", group: "Settings", scope: "Settings", icon: "mark-malachite", run: () => setDialog("hub") } as SearchItem] : []),
-    { id: "s:settings", label: "Settings", detail: "theme, packages", shortcut: "Ctrl ,", group: "Settings", scope: "Settings", icon: "a-settings", run: () => setDialog("settings") },
-    { id: "s:packages", label: "Julia packages…", detail: "add JulixPlot, Plots, DataFrames…", group: "Settings", scope: "Settings", icon: "package", run: () => setDialog("packages") },
-    { id: "h:help", label: "Help: Julia's docs", detail: "search names, read docstrings", shortcut: "F1", group: "Help", scope: "Help", icon: "question", run: () => setDialog("help") },
-    { id: "h:manual", label: "Julix on GitHub", detail: "github.com/paperboatlab/julix", group: "Help", scope: "Help", icon: "link-external", run: () => { window.open("https://github.com/paperboatlab/julix#readme", "_blank", "noopener"); } },
-    ...files(tree.examples).map((p): SearchItem => ({ id: `h:${p}`, label: `Example: ${base(p)}`, group: "Help", scope: "Help", icon: "book", run: () => open(p) })),
-    { id: "h:about", label: "About Julix", detail: "version, runtime, licence", group: "Help", scope: "Help", icon: "info", run: () => setDialog("about") },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  ], [debugging, tree, variables, figures, current, doc, running, hidden, theme, hubs, open, run, newScript, copyIn, toggle, fail, show]);
+    ...commands.filter((c) => !c.quiet).map((c): SearchItem => {
+      const g = c.menu === "help" ? "Help" : "Commands", on = typeof c.enabled === "function" ? c.enabled() : c.enabled ?? true;
+      return { id: c.id, label: c.menu === "view" && c.group === "theme" ? `Theme: ${c.label}` : c.menu === "view" && c.group === "panels" ? `${c.checked ? "Hide" : "Show"} ${c.label}` : c.label,
+        shortcut: c.shortcut, group: g, scope: g, icon: c.icon ?? "command", disabled: !on, why: c.why, run: c.run };
+    }),
+  ];
   // the hubs are read again as anything that shows them opens
-  useEffect(() => { if (search || dialog === "settings" || dialog === "hub") readHubs(); }, [search, dialog, readHubs]);
+  useEffect(() => { if (search || dialog === "settings") readHubs(); }, [search, dialog, readHubs]);
 
   // Help (F1): Julia's own docs, from the session (the names it can reach, their docstrings); the shortcuts page
   // is the kit's, from the keys Julix answers
@@ -387,7 +504,6 @@ export function App() {
     items: (q) => api.helpItems(q).catch(() => []),
     page: (id) => api.helpPage(id).then((r) => ({ title: id, kind: "docstring", html: r.html || "<p>No docstring.</p>" }), () => null),
   }), []);
-  const commands = useMemo<Command[]>(() => searchItems.filter((i) => i.shortcut).map((i) => ({ id: i.id, label: i.label, menu: "view", group: i.group, shortcut: i.shortcut, run: i.run })), [searchItems]);
 
   const isJl = !!current && typeOf(current) === "jl";
   const at = isJl ? cellAt(text, cursor.line) : null, nCells = isJl ? cells(text).length : 0;
@@ -398,15 +514,12 @@ export function App() {
     <div className="win frame">
       <header className="bar">
         <span className="lk"><AppMark app="julix" size={26} idle={!running} label="Julix" /><span className="wm">Julix</span></span>
-        {hub
-          ? <span className="bar-hub" onClickCapture={() => { readHubs(); }}>
-              <HubSelector app="Julix" hub={kitHub(hub)} hubs={hubs.map(kitHub)} onSwitch={(id) => connectHub(id)} onNew={newHub}
-                onOpenInMalachite={hub.missing ? undefined : () => { api.hubInMalachite(hub.id).then(() => show({ title: `${hub.name} opens in Malachite`, state: "done" }), fail); }}
-                onDisconnect={() => connectHub(null)} />
-            </span>
-          : <span className="well bar-folder" title={folder?.root}><FolderIcon />{folder?.name ?? "…"}</span>}
+        <MenuBar commands={commands} menus={MENUS} groupTitles={{ theme: "Theme" }} />
+        {ws && <WorkspaceWell workspace={ws} home={home} recent={recentItems} hubs={hubs.map(kitHub)} onOpenFolder={openFolder} onConnect={connect}
+          onClose={closeWorkspace} onSwitchHub={toHub} onNewHub={newHub} onUseFolder={openFolder}
+          onOpenInMalachite={hub && !hub.missing ? () => { api.hubInMalachite(hub.id).then(() => show({ title: `${hub.name} opens in Malachite`, state: "done" }), fail); } : undefined} />}
         <span className="bend">
-          {running
+          {!ws ? null : running
             ? debugging
               ? <Key busy onClick={() => command("stop")} title={`Stop debugging (${DEBUG_KEYS.stop})`}>{paused ? "paused" : <Elapsed since={now?.started} />}<Icon name="debug-stop" />Stop</Key>
               : <Key busy onClick={() => api.interrupt().catch(fail)} title="Interrupt (Ctrl C in the console)"><Elapsed since={now?.started} /><Icon name="debug-stop" />Stop</Key>
@@ -416,11 +529,21 @@ export function App() {
           <PanelsKey panels={PANELS.map((p) => ({ id: p.side, label: p.name, keys: p.keys, shown: !hidden[p.side] }))} layout={LAYOUT} onToggle={(id) => toggle(id as Side)} />
           <span className="sep" />
           <ThemePicker theme={theme} onChange={setTheme} />
+          <WindowKeys />
         </span>
       </header>
 
-      <main className="ws">
-        <Panel name={folder?.name ?? "Files"} count={`${files(tree.files).length}`} side="left" hidden={hidden.l} onHidden={(h) => toggle("l", h)} icon="folder" width={FILES_W}
+      {info && !ws && <main className="ws start"><div className="mid bay"><section className="panel start-card">
+        <Start app="Julix" noun="script" nouns="scripts" hubs={hubs.length > 0} recent={recent} home={home} onOpenFolder={openFolder} onOpenFile={openFile}
+          onNew={() => newScript()} onConnect={connect} onRecent={openRecent} onDrop={(e) => {
+            // a Paperboat window gives a dropped file's path; a browser can't say where it lives: type it
+            const f = e.dataTransfer.files[0] as (File & { path?: string }) | undefined;
+            if (f?.path) { if (f.type || /\.\w+$/.test(f.name)) openAbs(f.path); else switchTo(() => api.workIn({ kind: "folder", path: f.path! })); }
+            else setDialog(f && /\.\w+$/.test(f.name) ? "file" : "folder");
+          }} />
+      </section></div></main>}
+      {ws && <main className="ws">
+        <Panel name="Files" count={`${files(tree.files).length}`} side="left" hidden={hidden.l} onHidden={(h) => toggle("l", h)} icon="folder" width={FILES_W} className="filesp"
           tools={<><Key size="sm" kind="quiet" round icon="new-file" label="New script (Ctrl N)" onClick={() => newScript("")} /><Key size="sm" kind="quiet" round icon="new-folder" label="New folder" onClick={() => newFolder("")} /></>}>
           <FileTree entries={rows(tree.files)} active={current ?? undefined} actions={treeActions} menu={menuFor} ariaLabel="Files"
             labels={{ newFile: "New script", empty: "No files yet: make a script (Ctrl N), or copy an example." }} />
@@ -428,6 +551,7 @@ export function App() {
             <div className="exh">Examples<small>read-only</small></div>
             <FileTree entries={rows(tree.examples)} active={current ?? undefined} actions={exampleActions} menu={exampleMenu} ariaLabel="Examples" />
           </>}
+          <div className="sfoot" title={ws.root}>{ws.kind === "hub" ? <><HubMark size={14} /><code>history kept by Malachite</code></> : <><FolderGlyph /><code>{tilde(ws.root, home)}</code></>}</div>
         </Panel>
 
         <div className="mid bay">
@@ -487,24 +611,35 @@ export function App() {
             debug={<Debug paused={paused} debugging={debugging} current={isJl ? current : null} breakpoints={bps} onStart={() => run("file", undefined, 1, true)}
               onCommand={command} onBreakpoints={setBreakpoints} onOpen={(p) => open(p)} onError={fail} />} />
         </Panel>
-      </main>
+      </main>}
 
-      {search && <Search items={searchItems} scopes={["All", "Files", "Variables", "Figures", "Commands", "Settings", "Help"]} placeholder={`Search ${folder?.name ?? "the folder"}, or run a command`} onClose={() => setSearch(false)} />}
+      {search && <Search items={searchItems} scopes={["All", "Files", "Variables", "Figures", "Commands", "Help"]} placeholder={ws ? `Search ${ws.name}, or run a command` : "Run a command"} onClose={() => setSearch(false)} />}
       {ask && <AskDialog ask={ask} onClose={() => setAsk(null)} />}
       {dialog === "settings" && (
         <Dialog title="Settings" onClose={() => setDialog(null)} actions={<Key onClick={() => setDialog(null)}>Done</Key>}>
           <div className="sett">
             <span>Theme</span><Segmented label="Theme" value={theme} onChange={setTheme} options={[{ value: "light", label: "Light" }, { value: "dark", label: "Dark" }, { value: "system", label: "System" }]} />
-            <span>Julia packages</span><span><Key size="sm" onClick={() => setDialog("packages")}>Packages…</Key></span>
-            {hubs.length > 0 && <><span>Hub</span><span>{hub && <span className="hub-now">{hub.name}</span>}<Key size="sm" onClick={() => setDialog("hub")}>{hub ? "Switch…" : "Connect to a hub…"}</Key></span></>}
+            {ws && <><span>Julia packages</span><span><Key size="sm" onClick={() => setDialog("packages")}>Packages…</Key></span></>}
+            {hubs.length > 0 && <><span>Hub</span><span>{hub && <span className="hub-now">{hub.name}</span>}<Key size="sm" onClick={connect}>{hub ? "Switch…" : "Connect to a hub…"}</Key></span></>}
           </div>
         </Dialog>
       )}
-      {dialog === "hub" && <ConnectHub app="Julix" about="its scripts, data and plots" hubs={hubs.map(kitHub)} current={hubId ?? undefined}
-        onConnect={(id) => { setDialog(null); if (id !== hubId) connectHub(id); }} onNew={() => { setDialog(null); newHub(); }}
-        onFolder={() => { setDialog(null); if (hubId) connectHub(null); }} onClose={() => setDialog(null)} />}
+      {dialog === "hub" && <ConnectHub app="Julix" hubs={hubs.map(kitHub)} onClose={() => setDialog(null)}
+        onConnect={(id) => { setDialog(null); if (id !== ws?.hub) toHub(id); }} onNew={() => { setDialog(null); newHub(); }} />}
+      {dialog === "ask" && <AskOpen what="a script" types={TYPES} hubs={hubs.length} onLocal={pickLocal} onConnect={connect} onClose={() => setDialog(null)} />}
+      {dialog === "open" && <OpenFile what="a script" types={TYPES} kinds="Scripts" hub={pickHub} list={async () => rows(tree.files)} onClose={() => setDialog(null)}
+        describe={(e) => { const f = entryAt(tree.files, e.path); return f && <dl className="facts">{f.mtime && <><dt>changed</dt><dd>{day(f.mtime)}</dd></>}{f.size !== undefined && <><dt>size</dt><dd>{size(f.size)}</dd></>}</dl>; }}
+        onOpen={(p) => { setDialog(null); open(p); }} />}
+      {dialog === "save" && current && <SaveFile what={base(current)} types={TYPES} name={base(current).replace(/(\.\w+)?$/, "-v2$1")} hub={pickHub} list={async () => rows(tree.files)} onClose={() => setDialog(null)}
+        onSave={(p) => { setDialog(null); api.save(p, draft ?? doc?.text ?? "").then(() => { reload(); open(p); }, fail); }} />}
+      {dialog === "folder" && <TypedPath title="Open folder" onClose={() => setDialog(null)}
+        onOpen={(p) => { setDialog(null); switchTo(() => api.workIn({ kind: "folder", path: p })); }} />}
+      {dialog === "file" && <TypedPath title="Open a local file" what="file" onClose={() => setDialog(null)} onOpen={(p) => { setDialog(null); openAbs(p); }} />}
+      {closing && current && <Unsaved name={base(current)} closing={closing.what} onClose={() => setClosing(null)}
+        onSave={() => { const then = closing.then; setClosing(null); save(current, draft!).then((ok) => ok && then()); }}
+        onDiscard={() => { const then = closing.then; setClosing(null); setDraft(null); then(); }} />}
       {dialog === "help" && <HelpWindow app="Julix" provider={help} commands={commands} onClose={() => setDialog(null)} />}
-      {dialog === "about" && <AboutJulix version={folder?.version ?? ""} julia={julia} onClose={() => setDialog(null)} />}
+      {dialog === "about" && <AboutJulix version={info?.version ?? ""} julia={julia} onClose={() => setDialog(null)} />}
       {dialog === "packages" && <Packages julia={julia?.version} onClose={() => setDialog(null)} notify={show} />}
       <Toasts toasts={toasts} onDismiss={dismiss} />
     </div>

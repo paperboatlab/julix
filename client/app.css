@@ -10,9 +10,11 @@ body { background: var(--surface-ground); color: var(--text); font: var(--size-s
 /* ---- Julix ---- */
 /* the window: the bar on top, then Files · (script + figure, console) · Workspace; no rail */
 .win { height: 100%; display: grid; grid-template-columns: minmax(0, 1fr); grid-template-rows: var(--bar-height) minmax(0, 1fr); gap: var(--gutter); padding: var(--gutter); }
-/* the folder's well (or the hub selector) beside the name, as the mockup: not the kit's centred .proj */
-.bar-folder { font-size: var(--size-sm); max-width: 260px; overflow: hidden; white-space: nowrap; }
-.bar-hub { display: inline-flex; }
+/* no workspace: the Start page fills the bay's one card */
+.start-card { flex: 1; min-height: 0; display: flex; }
+/* the Files panel's foot: where the folder is, or the hub's history (the well already names it) */
+.filesp .sfoot { margin-top: auto; display: flex; align-items: center; gap: 8px; padding: 10px 12px; color: var(--text-muted); white-space: nowrap; overflow: hidden; }
+.sfoot code { font: var(--size-2xs) var(--font-mono); overflow: hidden; text-overflow: ellipsis; }
 .fi { display: inline-flex; flex: none; }
 .sett .hub-now { margin-right: 10px; }
 .runwhat { font: 400 var(--size-2xs) var(--font-mono); color: var(--text-muted); margin-left: 2px; }
@@ -170,3 +172,12 @@ button.drow.on { background: color-mix(in srgb, var(--accent) var(--tint), trans
 /* the debug dock in a narrow editor: its keys say only their icons (each keeps its title), where it is goes */
 .ed .body { container-type: inline-size; }
 @container (max-width: 620px) { .debug-dock .key { font-size: 0; gap: 0; padding-inline: 8px; } .debug-dock > .key.primary:first-child { min-width: 0; } .debug-dock .run-status { display: none; } }
+/* the Start page: no side panels, so the bay keeps the gutter at both sides */
+.ws.start { padding: 0 var(--gutter); }
+/* a menu bar's menu is as wide as its longest item (the kit's sizes it to the title, so "Open folder… Ctrl K Ctrl O" wrapped) */
+.menu-wrap > .menu { width: max-content; }
+.filesp .panel-body { display: flex; flex-direction: column; }
+.filesp .panel-body > * { flex: none; }
+/* the hub picker's preview: what a script is (as the mockup's dl) */
+.facts { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; margin: 4px 0; font: var(--size-2xs) var(--font-mono); }
+.facts dt { color: var(--text-muted); } .facts dd { margin: 0; }
