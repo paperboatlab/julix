@@ -10,10 +10,10 @@ export type Place = "local" | "google-drive" | "onedrive" | "dropbox" | "icloud"
 export type HubInfo = { id: string; name: string; path: string; shown: string; place: Place; missing?: boolean; conflicts?: number; holds?: string };
 const PLACES = new Set<string>(["local", "google-drive", "onedrive", "dropbox", "icloud"]);
 
-/** `paperboat <args> --json` ($PAPERBOAT, else on PATH; no shell), its output parsed; rejects on any failure. */
+/** `paperboat <args> --json` ($PAPERBOAT_BIN, else on PATH; no shell), its output parsed; rejects on any failure. */
 export function paperboat(args: string[], timeout = 10_000): Promise<unknown> {
   return new Promise((resolve, reject) => {
-    execFile(process.env.PAPERBOAT || "paperboat", [...args, "--json"], { timeout, maxBuffer: 4 << 20 }, (err, out, errOut) => {
+    execFile(process.env.PAPERBOAT_BIN || "paperboat", [...args, "--json"], { timeout, maxBuffer: 4 << 20 }, (err, out, errOut) => {
       if (err) return reject(new Error(String(errOut).trim().split("\n").pop() || err.message));
       try { resolve(JSON.parse(out)); } catch { reject(new Error(`paperboat ${args.join(" ")}: not JSON`)); }
     });

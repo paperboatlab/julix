@@ -16,8 +16,8 @@ test("open a folder, a hub, a file from outside, close; recent and settings shar
   fs.writeFileSync(path.join(hub, "one.jl"), "3\n");
   const cli = path.join(tmp, "paperboat");
   fs.writeFileSync(cli, `#!/bin/sh\necho '${JSON.stringify([{ id: "h1", name: "tank-lab", path: hub, shown: hub, place: "local" }])}'\n`, { mode: 0o755 });
-  const env = { PAPERBOAT_HOME: process.env.PAPERBOAT_HOME, PAPERBOAT: process.env.PAPERBOAT };
-  process.env.PAPERBOAT_HOME = home; process.env.PAPERBOAT = cli;
+  const env = { PAPERBOAT_HOME: process.env.PAPERBOAT_HOME, PAPERBOAT_BIN: process.env.PAPERBOAT_BIN };
+  process.env.PAPERBOAT_HOME = home; process.env.PAPERBOAT_BIN = cli;
   const { server, ready } = serve(null, 0);
   try {
     await new Promise((r) => server.once("listening", r));

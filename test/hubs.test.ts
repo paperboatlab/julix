@@ -13,21 +13,21 @@ function fake(out: string, code = 0) {
 }
 
 test("no Malachite, no hub: a missing or failing CLI means no hubs", { skip: process.platform === "win32" }, async () => {
-  const was = process.env.PAPERBOAT;
+  const was = process.env.PAPERBOAT_BIN;
   try {
-    process.env.PAPERBOAT = path.join(os.tmpdir(), "no-such-paperboat");
+    process.env.PAPERBOAT_BIN = path.join(os.tmpdir(), "no-such-paperboat");
     assert.deepEqual(await hubs(), []);
-    process.env.PAPERBOAT = fake("paperboat: hub: not a command", 2);
+    process.env.PAPERBOAT_BIN = fake("paperboat: hub: not a command", 2);
     assert.deepEqual(await hubs(), []);
-    process.env.PAPERBOAT = fake("not json");
+    process.env.PAPERBOAT_BIN = fake("not json");
     assert.deepEqual(await hubs(), []);
-  } finally { if (was === undefined) delete process.env.PAPERBOAT; else process.env.PAPERBOAT = was; }
+  } finally { if (was === undefined) delete process.env.PAPERBOAT_BIN; else process.env.PAPERBOAT_BIN = was; }
 });
 
 test("hub list --json is read as the kit's hubs", { skip: process.platform === "win32" }, async () => {
-  const was = process.env.PAPERBOAT;
+  const was = process.env.PAPERBOAT_BIN;
   try {
-    process.env.PAPERBOAT = fake(JSON.stringify([
+    process.env.PAPERBOAT_BIN = fake(JSON.stringify([
       { id: "6f1c", path: "/home/u/hubs/tank-lab", place: "local", name: "tank-lab", shown: "~/hubs/tank-lab" },
       { id: "a93e", path: "/home/u/Dropbox/pump-rig", place: "dropbox", name: "pump-rig", shown: "~/Dropbox/pump-rig", conflicts: ["a (conflicted copy).jl"] },
       { id: "c001", path: "/gone/old", place: "elsewhere", name: "old", shown: "/gone/old", missing: true },
@@ -38,5 +38,5 @@ test("hub list --json is read as the kit's hubs", { skip: process.platform === "
       { id: "a93e", path: "/home/u/Dropbox/pump-rig", name: "pump-rig", shown: "~/Dropbox/pump-rig", place: "dropbox", conflicts: 1 },
       { id: "c001", path: "/gone/old", name: "old", shown: "/gone/old", place: "local", missing: true },
     ]);
-  } finally { if (was === undefined) delete process.env.PAPERBOAT; else process.env.PAPERBOAT = was; }
+  } finally { if (was === undefined) delete process.env.PAPERBOAT_BIN; else process.env.PAPERBOAT_BIN = was; }
 });
