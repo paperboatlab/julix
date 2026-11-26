@@ -14,8 +14,8 @@ the code shows as SVG or PNG becomes a figure, kept per run.
 
 **Status:** v0.1, rebuilt on the new platform. The previous version, Squero Studio MX, is archived as
 [squero-studio-mx-legacy](https://github.com/paperboatlab/squero-studio-mx-legacy). Its editor, file tree and
-plots are `@paperboatlab/ui`'s. Next: JulixPlot.jl (interactive figures on the kit's plots) and shared
-variables with Simplicial.
+plots are `@paperboatlab/ui`'s. Its variables are live in Simplicial (a running station's
+Variables card, bindable to a block's settings). Next: JulixPlot.jl (interactive figures on the kit's plots).
 
 **Docs:** <https://paperboatlab.org/apps/julix/> (sources in [`docs/`](docs/))
 
