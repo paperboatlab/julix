@@ -45,7 +45,7 @@ flowchart LR
   never queued behind it.
 - `server/packages.ts`: the folder's Julia packages the platform's way (the CLI's recipe): an exec lease
   changes the project, with the network for an add only; `JULIXPLOT=<checkout>` develops a local JulixPlot.
-- `server/hubs.ts`: the hubs (paperboat#16), from `paperboat hub list --json` (`$PAPERBOAT` or on PATH, no
+- `server/hubs.ts`: the hubs (paperboat#16), from `paperboat hub list --json` (`$PAPERBOAT_BIN` or on PATH, no
   shell), read when the page asks; a CLI that is missing or fails means no hubs, and the page says nothing
   about them (no Malachite, no hub). `holds` counts a hub's scripts for Connect to a hub. `.malachite/` is
   a dot folder: never in the tree. New hub is `paperboat hub new`, Open in Malachite `paperboat app open malachite`.
