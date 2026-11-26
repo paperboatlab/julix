@@ -43,6 +43,13 @@ flowchart LR
   `eval` with `debug` and the file's breakpoints (paperboat docs/runtime.md "Debugging"); its stops
   become `debug` events (the last kept for a page that opens later), and `/api/debug` steers it at once,
   never queued behind it.
+- `server/share.ts`: Julix's shared variables (plans/2026-11-27_00-15_julix_simplicial_shared_variables.md): the
+  running Simplicial stations, from the records their engine keeps (`/tmp/paperboat-runtime/station-<port>.json`, a
+  dead pid skipped), each held on a WebSocket (paperboat/0, scanned every 5 s), sent `variables.set` with `source:
+  "julix"` whenever the session's variables change (a run, the variable editor, a new or ended session).
+  `Sessions.shared` reads them in one quiet eval: real numbers, Bools, one-line text, real arrays as a matrix by its
+  rows up to 4096 values (larger: a note). Only the julix command shares (`serve`'s `share`), never a test. The
+  station resolves the flow's own variables first and these under the names left; closing the socket drops them.
 - `server/packages.ts`: the folder's Julia packages the platform's way (the CLI's recipe): an exec lease
   changes the project, with the network for an add only; `JULIXPLOT=<checkout>` develops a local JulixPlot.
 - `server/hubs.ts`: the hubs (paperboat#16), from `paperboat hub list --json` (`$PAPERBOAT_BIN` or on PATH, no

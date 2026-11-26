@@ -23,6 +23,12 @@ Variables
 
 .. note:: Not written yet: the session's variables, how they update after a run.
 
+**Shared with Simplicial.** While a Simplicial station runs on this computer, the session's variables
+go to it after every run: numbers, booleans, text (one line), and real arrays as a matrix by its rows
+(a vector is a column), up to 4096 values; a larger array goes as its size only, so share a slice. In
+Simplicial they show under **From Julix** in the Variables card, and a block's setting can be bound to
+one; a variable the flow defines itself wins. They go when Julix closes or its session restarts.
+
 Folders and hubs
 ----------------
 

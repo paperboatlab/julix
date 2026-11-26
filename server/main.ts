@@ -14,6 +14,7 @@ import { holds, hubs, paperboat } from "./hubs.ts";
 import { forget, recent, remember, setTheme, settings } from "./store.ts";
 import { PackageError, packages } from "./packages.ts";
 import { Sessions, type Kind } from "./session.ts";
+import { Share } from "./share.ts";
 
 export const DEFAULT_PORT = 30473;   // Julix's home port (paperboat/apps.toml); other folders get --port from the CLI (30500–30599)
 export const VERSION = "0.1.0";
@@ -37,12 +38,19 @@ function absolute(p: string): string {
   return path.resolve(t);
 }
 
-export function serve(dir: string | null, port = DEFAULT_PORT, control = new Control()) {
+/** `share`: the session's variables go live to every running Simplicial station (the julix command shares; a test
+ *  doesn't, so it never reaches a station the machine is running). */
+export function serve(dir: string | null, port = DEFAULT_PORT, control = new Control(), share: Share | null = null) {
   let ws: Workspace | null = null;
   let folder: Folder | null = null;
   let sessions: Sessions | null = null;
   const clients = new Set<http.ServerResponse>();
-  const emit = (e: Record<string, unknown>) => { const s = `data: ${JSON.stringify(e)}\n\n`; for (const c of clients) c.write(s); };
+  const emit = (e: Record<string, unknown>) => {
+    const s = `data: ${JSON.stringify(e)}\n\n`;
+    for (const c of clients) c.write(s);
+    // the variables changed (a run ended, a session started or ended): the stations take them as they are now
+    if (e.type === "variables") share?.changed(() => sessions ? sessions.shared() : Promise.resolve([]));
+  };
 
   // the tree follows the files: whoever changed them (this server, another editor, git)
   let pending = new Set<string>(), timer: NodeJS.Timeout | undefined;
@@ -257,7 +265,7 @@ export function serve(dir: string | null, port = DEFAULT_PORT, control = new Con
   });
 
   server.listen(port, "127.0.0.1");
-  server.on("close", () => { watcher?.close(); sessions ? sessions.close() : control.close(); for (const c of clients) c.end(); });
+  server.on("close", () => { share?.close(); watcher?.close(); sessions ? sessions.close() : control.close(); for (const c of clients) c.end(); });
   return { server, ready };
 }
 
@@ -294,7 +302,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === fs.realpathSync(proces
     process.exit(0);
   }
   if (dir) fs.mkdirSync(dir, { recursive: true });
-  const { server } = serve(dir, port);
+  const { server } = serve(dir, port, undefined, new Share());
   server.on("listening", () => console.log(`Julix${dir ? `: ${path.resolve(dir)}` : ""} on http://127.0.0.1:${port}/`));
   server.on("error", (e) => { console.error(`julix: ${e.message}`); process.exit(1); });
   for (const s of ["SIGINT", "SIGTERM"]) process.on(s, () => { server.close(); process.exit(0); });

@@ -26,6 +26,12 @@ export type Run = {
   debug?: boolean;
 };
 export type Variable = { name: string; type: string; summary: string; size?: number };
+/** A variable as another app takes it (Simplicial's live variables, paperboat/0 `Variable`): a matrix by its rows. */
+export type SharedVariable = { name: string; type: "number" | "boolean" | "text" | "matrix"; value?: number | boolean | string; note?: string };
+/** Arrays up to this many values are shared whole; a larger one goes with a note instead (as Squero MX did). */
+export const LIVE_LIMIT = 4096;
+/** A name a station variable can have (Simplicial's `valid_variable_name`; the engine checks the rest). */
+const STATION_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 export type Figure = { run: string; n: number; mime: string; source: string; kind: Kind; time: string; thumb?: boolean };
 type Session = { lease: Lease; rt: Runtime; cwd?: string };
 export type Values = { kind: "scalar"; value: number } | { kind: "vector"; values: number[] } | { kind: "matrix"; rows: number[][] };
@@ -248,6 +254,36 @@ end;`, "workspace", false).catch(() => "");
     return { kind: "matrix", rows };
   }
 
+  /** The session's variables another app can take (Julix's shared variables, read by Simplicial): a real number, a
+   *  Bool, a line of text, a real vector or matrix as its rows ("1 2; 3 4", a vector a column) up to LIVE_LIMIT
+   *  values, a larger one with no value and a note. One quiet eval; nothing while no session runs. */
+  async shared(): Promise<SharedVariable[]> {
+    const names = this.variables.map((v) => v.name).filter((n) => STATION_NAME.test(n) && !["t", "pi", "e"].includes(n));
+    if (!names.length) return [];
+    const text = await this.quiet(`let out = IOBuffer()
+  for s in (${names.map((n) => `:${n}`).join(", ")},)
+    isdefined(@__MODULE__, s) || continue
+    v = getfield(@__MODULE__, s)
+    if v isa Bool
+      print(out, s, "\tb\t", v, "\n")
+    elseif v isa Real && isfinite(v)
+      print(out, s, "\tn\t", Float64(v), "\n")
+    elseif v isa AbstractString && length(v) <= 500 && !any(c -> c in "\t\n\r", v)
+      print(out, s, "\tt\t", v, "\n")
+    elseif v isa AbstractVecOrMat{<:Real} && !isempty(v)
+      if length(v) > ${LIVE_LIMIT}
+        print(out, s, "\tbig\t", join(size(v), "×"), "\t", length(v), "\n")
+      elseif all(isfinite, v)
+        m = v isa AbstractVector ? reshape(v, :, 1) : v
+        print(out, s, "\tm\t", join((join(Float64.(m[i, :]), " ") for i in axes(m, 1)), "; "), "\n")
+      end
+    end
+  end
+  print(String(take!(out)))
+end;`, "shared variables", false).catch(() => "");
+    return parseShared(text);
+  }
+
   /** The variable editor's change: the same name, the new numbers, its element type kept (Int stays Int). */
   async setValues(name: string, value: number | number[] | number[][]): Promise<void> {
     if (!this.known(name)) throw new Error(`${name} isn't a variable of the session`);
@@ -348,4 +384,19 @@ end;`, "help", true);
     const list = await this.control.call<{ runtimes: { name: string; version: string; modes: string[] }[] }>("runtimes.list");
     return { sessions, julia: list.runtimes.find((r) => r.name === "julia" && r.modes.includes("session")) ?? null };
   }
+}
+
+/** What `shared`'s eval printed: a line per variable, `name<TAB>kind<TAB>value`. */
+export function parseShared(text: string): SharedVariable[] {
+  const out: SharedVariable[] = [];
+  for (const line of text.split("\n")) {
+    const [name, kind, value = "", count] = line.split("\t");
+    if (!name || !kind) continue;
+    if (kind === "b") out.push({ name, type: "boolean", value: value === "true" });
+    else if (kind === "n") out.push({ name, type: "number", value: Number(value) });
+    else if (kind === "t") out.push({ name, type: "text", value });
+    else if (kind === "m") out.push({ name, type: "matrix", value });
+    else if (kind === "big") out.push({ name, type: "matrix", note: `${value}: too large to share live (${count} values, limit ${LIVE_LIMIT}); share a slice such as ${name}[1:10, 1:10]` });
+  }
+  return out;
 }

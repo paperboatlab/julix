@@ -26,6 +26,20 @@ test("a script runs in a Julia session lease: output, figures, variables, errors
     assert.deepEqual(a.outputs, [{ type: "stream", name: "stdout", text: "42 sub\n" }, { type: "result", data: { "text/plain": "42" } }]);
     assert.equal(a.runtime?.name, "julia");
 
+    // what Simplicial takes (Julix's shared variables): numbers, booleans, text, matrices by rows (a vector a
+    // column), a big array with a note; names a station variable can't have and other values left out
+    const sv = await done(s.run("console", "console", 'k = 2.5; flag = true; label = "cart"; A = [1 2; 3 4]; v = [1.5, 2.5]; big = zeros(70, 70); θ = 1; f(x) = x'));
+    assert.equal(sv.state, "done", JSON.stringify(sv.outputs));
+    const shared = Object.fromEntries((await s.shared()).map((x) => [x.name, x]));
+    assert.deepEqual(shared.k, { name: "k", type: "number", value: 2.5 });
+    assert.deepEqual(shared.flag, { name: "flag", type: "boolean", value: true });
+    assert.deepEqual(shared.label, { name: "label", type: "text", value: "cart" });
+    assert.deepEqual(shared.A, { name: "A", type: "matrix", value: "1.0 2.0; 3.0 4.0" });
+    assert.deepEqual(shared.v, { name: "v", type: "matrix", value: "1.5; 2.5" });
+    assert.match(shared.big.note ?? "", /too large to share live \(4900 values/);
+    assert.equal(shared.θ, undefined);
+    assert.equal(shared.f, undefined);
+
     // the figures example run whole: its two display() calls are figures (its last value, a loop, is nothing)
     const b = await done(s.run("file", "@examples/03-figures.jl", folder.read("@examples/03-figures.jl")));
     assert.equal(b.state, "done", JSON.stringify(b.outputs));
