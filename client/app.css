@@ -17,6 +17,9 @@ body { background: var(--surface-ground); color: var(--text); font: var(--size-s
 .sett .hub-now { margin-right: 10px; }
 .runwhat { font: 400 var(--size-2xs) var(--font-mono); color: var(--text-muted); margin-left: 2px; }
 .ws { min-height: 0; display: flex; gap: var(--gutter); }
+/* the frame (kit .frame/.bay): the bar and the side panels are one surface; the bay holds script, figure and console */
+.win.frame { gap: 0; padding: 0 0 var(--gutter); }
+.frame .ws { gap: 0; }
 .mid { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: var(--gutter); }
 .top { flex: 1; min-height: 0; display: flex; gap: var(--gutter); }
 .welcome { display: flex; flex-direction: column; align-items: center; gap: 14px; } .welcome p { max-width: 340px; margin: 0; } .welcome > span { display: flex; gap: 8px; }
