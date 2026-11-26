@@ -7,7 +7,7 @@ runtime too.
 .. code-block:: sh
 
    paperboat app install julix
-   paperboat app open julix [<folder>]      # http://127.0.0.1:30473
+   paperboat app open julix [<folder>]      # http://127.0.0.1:30473; no folder: the Start page
    paperboat app stop julix
 
 Your first script
@@ -23,7 +23,9 @@ Your first script
 The folder
 ----------
 
-Julix opens a folder of ``.jl`` scripts. The read-only examples are shown in every folder.
-``/?open=<path>`` opens a file.
+Julix opens a folder of ``.jl`` scripts, or a hub; the read-only examples are shown in every one. Without
+a folder it opens on the Start page; **File › Open folder…** (:kbd:`Ctrl K` :kbd:`Ctrl O`) picks one
+and switches at any time, without a restart. ``/?open=<path>`` opens a file: a path in the folder, or a
+whole path, which brings its folder along.
 
-.. note:: Not written yet: the default folder, and what the session can see outside it.
+.. note:: Not written yet: what the session can see outside the folder.

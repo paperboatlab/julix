@@ -1,15 +1,17 @@
-// The Julix app server: `julix <folder> [--port N]`. Serves the page (dist/), a JSON API over the
+// The Julix app server: `julix [<folder>] [--port N]`. Serves the page (dist/), a JSON API over the
 // workspace and its Julia session, and Server-Sent Events for what changes (files, runs, variables, the
 // session). It listens on 127.0.0.1 only and answers only requests addressed to it (Host) from its own
 // page (Origin), so a web page elsewhere can't drive it.
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import http from "node:http";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Control, ControlError, paperboatVersion } from "./control.ts";
 import { Folder, FolderError } from "./folder.ts";
-import { hubs, paperboat } from "./hubs.ts";
+import { holds, hubs, paperboat } from "./hubs.ts";
+import { forget, recent, remember, setTheme, settings } from "./store.ts";
 import { PackageError, packages } from "./packages.ts";
 import { Sessions, type Kind } from "./session.ts";
 
@@ -22,17 +24,29 @@ const TYPES: Record<string, string> = {
 };
 const KINDS = new Set<Kind>(["file", "cell", "line", "console"]);
 
-export function serve(dir: string, port = DEFAULT_PORT, control = new Control()) {
-  const home = dir;   // the folder Julix was opened on; Disconnect comes back here
-  let folder = new Folder(dir);
-  let hub: string | null = null;   // the hub Julix works in (its id), while connected
+/** What Julix works in: a folder, a hub (`hub`: its id), or nothing (the page shows Start). */
+export type Workspace = { kind: "folder" | "hub"; root: string; name: string; hub?: string };
+
+const within = (root: string, p: string) => p === root || p.startsWith(root + path.sep);
+const real = (p: string) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+/** A path the page typed or the shell gave: absolute, `~` the home folder. */
+function absolute(p: string): string {
+  if (typeof p !== "string" || !p.trim() || p.includes("\0")) throw new FolderError("bad path");
+  const t = p.trim().replace(/^~(?=$|[\\/])/, os.homedir());
+  if (!path.isAbsolute(t)) throw new FolderError("a whole path: from / or ~");
+  return path.resolve(t);
+}
+
+export function serve(dir: string | null, port = DEFAULT_PORT, control = new Control()) {
+  let ws: Workspace | null = null;
+  let folder: Folder | null = null;
+  let sessions: Sessions | null = null;
   const clients = new Set<http.ServerResponse>();
   const emit = (e: Record<string, unknown>) => { const s = `data: ${JSON.stringify(e)}\n\n`; for (const c of clients) c.write(s); };
-  let sessions = new Sessions(folder, control, emit);
 
   // the tree follows the files: whoever changed them (this server, another editor, git)
   let pending = new Set<string>(), timer: NodeJS.Timeout | undefined;
-  const watch = () => fs.watch(folder.root, { recursive: true }, (_ev, f) => {
+  const watch = (root: string) => fs.watch(root, { recursive: true }, (_ev, f) => {
     if (!f) return;
     const rel = f.toString().split(path.sep).join("/");
     if (rel.split("/").some((p) => p.startsWith(".") || p === "node_modules") || rel.endsWith(".tmp")) return;
@@ -40,18 +54,46 @@ export function serve(dir: string, port = DEFAULT_PORT, control = new Control())
     clearTimeout(timer);
     timer = setTimeout(() => { emit({ type: "files", changed: [...pending] }); pending = new Set(); }, 120);
   });
-  let watcher = watch();
+  let watcher: fs.FSWatcher | null = null;
 
-  // connecting to a hub: Julix works in the hub's folder (a new Julia session there); Disconnect, back home
-  const workIn = (root: string, id: string | null) => {
-    if (fs.realpathSync(root) !== folder.root) {
-      sessions.restart(); watcher.close(); clearTimeout(timer); pending = new Set();
-      folder = new Folder(root); sessions = new Sessions(folder, control, emit); watcher = watch();
-      emit({ type: "folder" });
+  // the workspace, switched at runtime: a new folder is a new Folder, a new Julia session (the old one is
+  // released) and a new watcher; null is no workspace (Start). What opens goes first in recent.json.
+  const workIn = (root: string | null, hub?: { id: string; name: string }): Workspace | null => {
+    const r = root && fs.realpathSync(root);
+    if (r !== (folder?.root ?? null)) {
+      sessions?.restart(); watcher?.close(); clearTimeout(timer); pending = new Set();
+      folder = r ? new Folder(r) : null;
+      sessions = folder && new Sessions(folder, control, emit);
+      watcher = folder && watch(folder.root);
     }
-    hub = id;
-    return { name: folder.name, root: folder.root, hub };
+    ws = folder && { kind: hub ? "hub" : "folder", root: folder.root, name: hub?.name ?? folder.name, ...(hub ? { hub: hub.id } : {}) };
+    if (ws) remember({ kind: ws.kind, path: ws.root, hub: ws.hub });
+    emit({ type: "folder" });
+    return ws;
   };
+  /** The known hub whose folder holds `p` (or is it). */
+  const hubOf = async (p: string) => (await hubs()).find((h) => !h.missing && within(real(h.path), p));
+  /** A folder: a hub when it is one's folder, else a plain folder. */
+  const openFolder = async (p: string) => {
+    const abs = real(absolute(p));
+    if (!fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) throw new FolderError(`no folder ${p}`, 404);
+    const h = (await hubs()).find((x) => !x.missing && real(x.path) === abs);
+    return workIn(abs, h);
+  };
+  /** A file from anywhere: inside the workspace it just opens; from outside, the workspace switches to its
+   *  hub (when a known hub holds it) or its folder. Returns its path in the workspace. */
+  const openFile = async (p: string) => {
+    const abs = real(absolute(p));
+    if (!fs.existsSync(abs) || !fs.statSync(abs).isFile()) throw new FolderError(`no file ${p}`, 404);
+    if (!folder || !within(folder.root, abs)) {
+      const h = await hubOf(abs);
+      workIn(h ? h.path : path.dirname(abs), h);
+    }
+    remember({ kind: "file", path: abs, hub: ws!.hub });
+    return { workspace: ws, path: path.relative(folder!.root, abs).split(path.sep).join("/") };
+  };
+  // a folder given at the start (paperboat app open julix <folder>): a hub when it is one
+  const ready = dir ? openFolder(dir).catch((e) => { console.error(`julix: ${e.message}`); return null; }) : Promise.resolve(null);
 
   const hosts = () => { const p = (server.address() as any)?.port; return [`127.0.0.1:${p}`, `localhost:${p}`]; };
 
@@ -75,29 +117,65 @@ export function serve(dir: string, port = DEFAULT_PORT, control = new Control())
       const q = (k: string) => { const v = url.searchParams.get(k); if (v === null) throw new FolderError(`missing ${k}`); return v; };
       const body = req.method === "GET" ? {} : await json(req);
       const str = (k: string) => { const v = body[k]; if (typeof v !== "string") throw new FolderError(`missing ${k}`); return v; };
-      switch (`${req.method} ${url.pathname}`) {
-        case "GET /api/folder": return send(res, 200, { name: folder.name, root: folder.root, hub, version: VERSION, session: sessions.state });
-        case "GET /api/hubs": return send(res, 200, await hubs());
-        case "POST /api/hub": {   // { id }: work in that hub; { id: null }: Disconnect
-          if (body.id === null) return send(res, 200, workIn(home, null));
+      switch (`${req.method} ${url.pathname}`) {   // what works with no workspace (the Start page)
+        case "GET /api/workspace": { await ready; return send(res, 200, { workspace: ws, home: os.homedir(), version: VERSION, session: sessions?.state ?? "stopped" }); }
+        case "POST /api/workspace": {   // { kind: "folder", path } | { kind: "hub", id } | { kind: null }: Close
+          if (body.kind === "folder") return send(res, 200, await openFolder(str("path")));
+          if (body.kind !== "hub") return send(res, 200, workIn(null));
           const h = (await hubs()).find((x) => x.id === str("id"));
           if (!h) throw new FolderError("no such hub", 404);
           if (h.missing) throw new FolderError(`can't find ${h.name}'s folder (${h.shown})`, 410);
-          return send(res, 200, workIn(h.path, h.id));
+          return send(res, 200, workIn(h.path, h));
+        }
+        case "POST /api/open": return send(res, 200, await openFile(str("path")));   // a file by its whole path (the shell's, or typed)
+        case "POST /api/saveas": {   // { path, text, new? }: a file written by its whole path, then opened (new: never over one)
+          const abs = absolute(str("path"));
+          if (body.new === true && fs.existsSync(abs)) throw new FolderError(`${str("path")} exists`, 409);
+          fs.mkdirSync(path.dirname(abs), { recursive: true });
+          const tmp = `${abs}.${process.pid}.tmp`;
+          fs.writeFileSync(tmp, str("text"));
+          fs.renameSync(tmp, abs);
+          return send(res, 200, await openFile(abs));
+        }
+        case "GET /api/recent": return send(res, 200, { version: 1, recent: recent() });
+        case "POST /api/recent": {   // a file of the workspace opened in the editor
+          if (!folder) throw new FolderError("no folder open", 409);
+          if (!Folder.readOnly(str("path"))) remember({ kind: "file", path: folder.resolve(str("path")), hub: ws?.hub });
+          return send(res, 200, {});
+        }
+        case "POST /api/recent/clear": { forget(); return send(res, 200, {}); }
+        case "GET /api/settings": return send(res, 200, settings());
+        case "PUT /api/settings": {
+          const t = str("theme");
+          if (t !== "light" && t !== "dark" && t !== "system") throw new FolderError("theme is light, dark or system");
+          setTheme(t);
+          return send(res, 200, settings());
+        }
+        case "GET /api/hubs": {   // with what each holds, for Connect to a hub
+          const list = await hubs();
+          return send(res, 200, list.map((h) => (h.missing ? h : { ...h, holds: holds(h.path) })));
         }
         case "POST /api/hubs/new": {   // New hub…: Malachite makes it (paperboat hub new), Julix works in it
           const name = str("name").trim();
           if (!name || /[\\/"]/.test(name)) throw new FolderError("a hub's name has no / \\ or quotes");
           const made = await paperboat(["hub", "new", name]).catch((e) => { throw new FolderError(e.message, 502); }) as { id: string; path: string };
-          return send(res, 200, workIn(made.path, made.id));
+          return send(res, 200, workIn(made.path, { id: made.id, name }));
         }
-        case "POST /api/hubs/malachite": {   // Open in Malachite: the CLI opens it in the browser
+        case "POST /api/hubs/malachite": {   // Open in Malachite: the CLI opens it (a Paperboat window, else the browser)
           const h = (await hubs()).find((x) => x.id === str("id") && !x.missing);
           if (!h) throw new FolderError("no such hub", 404);
           await paperboat(["app", "open", "malachite", h.path], 60_000).catch((e) => { throw new FolderError(e.message, 502); });
           return send(res, 200, {});
         }
         case "GET /api/paperboat": return send(res, 200, { version: await paperboatVersion() });
+        case "GET /api/runtimes": {   // the runtimes key: this workspace's session, or only whether Julia is there
+          if (sessions) return send(res, 200, await sessions.peek());
+          const list = await control.call<{ runtimes: { name: string; version: string; modes: string[] }[] }>("runtimes.list");
+          return send(res, 200, { sessions: [], julia: list.runtimes.find((r) => r.name === "julia" && r.modes.includes("session")) ?? null });
+        }
+      }
+      if (!folder || !sessions) throw new FolderError("no folder open: open one first", 409);
+      switch (`${req.method} ${url.pathname}`) {
         case "GET /api/tree": return send(res, 200, { files: folder.tree(), examples: folder.exampleTree() });
         case "GET /api/file": return send(res, 200, { path: q("path"), text: folder.read(q("path")), readOnly: Folder.readOnly(q("path")) });
         case "PUT /api/file": { folder.write(q("path"), str("text")); return send(res, 200, {}); }
@@ -159,7 +237,6 @@ export function serve(dir: string, port = DEFAULT_PORT, control = new Control())
         }
         case "POST /api/figure/thumb": { sessions.saveThumb(str("run"), Number(body.n), str("png")); emit({ type: "figures" }); return send(res, 200, {}); }
         case "POST /api/figures/remove": { sessions.removeFigures(str("run")); return send(res, 200, {}); }
-        case "GET /api/runtimes": return send(res, 200, await sessions.peek());
         case "GET /api/packages": return send(res, 200, await packages(control, folder, "list"));
         case "POST /api/packages": {   // add (the page has asked the user: the network opens for this step) or remove
           const op = str("op");
@@ -180,8 +257,8 @@ export function serve(dir: string, port = DEFAULT_PORT, control = new Control())
   });
 
   server.listen(port, "127.0.0.1");
-  server.on("close", () => { watcher.close(); sessions.close(); for (const c of clients) c.end(); });
-  return { server, folder };
+  server.on("close", () => { watcher?.close(); sessions ? sessions.close() : control.close(); for (const c of clients) c.end(); });
+  return { server, ready };
 }
 
 function send(res: http.ServerResponse, status: number, body: unknown) {
@@ -211,14 +288,14 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === fs.realpathSync(proces
   const args = process.argv.slice(2);
   const pi = args.indexOf("--port");
   const port = pi >= 0 ? Number(args.splice(pi, 2)[1]) : Number(process.env.JULIX_PORT ?? DEFAULT_PORT);
-  const dir = args[0];
-  if (!dir || args.includes("--help") || args.includes("-h")) {
-    console.log("usage: julix <folder> [--port N]\n  Opens the folder as Julix's workspace and serves it on 127.0.0.1.");
-    process.exit(dir ? 0 : 2);
+  const dir = args[0] ?? null;
+  if (args.includes("--help") || args.includes("-h")) {
+    console.log("usage: julix [<folder>] [--port N]\n  Serves Julix on 127.0.0.1, working in the folder (none: the Start page).");
+    process.exit(0);
   }
-  fs.mkdirSync(dir, { recursive: true });
-  const { server, folder } = serve(dir, port);
-  server.on("listening", () => console.log(`Julix: ${folder.name} (${folder.root}) on http://127.0.0.1:${port}/`));
+  if (dir) fs.mkdirSync(dir, { recursive: true });
+  const { server } = serve(dir, port);
+  server.on("listening", () => console.log(`Julix${dir ? `: ${path.resolve(dir)}` : ""} on http://127.0.0.1:${port}/`));
   server.on("error", (e) => { console.error(`julix: ${e.message}`); process.exit(1); });
   for (const s of ["SIGINT", "SIGTERM"]) process.on(s, () => { server.close(); process.exit(0); });
 }
