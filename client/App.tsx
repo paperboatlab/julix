@@ -1,12 +1,12 @@
 // Julix's page (agent-docs/rebrand/apps/julix, and apps/files for the one file workflow): one window, no rail.
-// The bar (mark, the menu bar, the workspace well, Run / Stop, the runtimes key, the Panels key, the theme, the
-// window keys); Files at the left; the script and its figure; the Workspace card at the right; the Console below.
+// The bar (mark, the menu bar, the workspace well, Run / Stop, the runtimes key, the Panels key, the window
+// keys); Settings (File › Settings…, Ctrl ,) is the kit's window: General, Julix, Editor, Hub, Shortcuts; Files at the left; the script and its figure; the Workspace card at the right; the Console below.
 // No workspace: the Start page in the bay. Everything shown comes from the app server; the files are the record.
 import {
-  About, AppMark, DebugDock, DEBUG_KEYS, Dialog, HelpWindow, Icon, Key, Menu, MenuBar, Notifications, Panel, PanelsKey, SEARCH_CHORD, Search, Segmented, Spinner, Split, ThemePicker, Toasts, WindowKeys, readStored, useShortcuts, useTheme, useToasts, writeStored,
+  About, AppMark, DebugDock, DEBUG_KEYS, Dialog, HelpWindow, Icon, Key, Menu, MenuBar, Notifications, Panel, PanelsKey, SEARCH_CHORD, Search, SettingRow, Settings, SettingsSection, ShortcutList, Spinner, Split, ThemeSetting, Toasts, WindowKeys, readStored, useShortcuts, useTheme, useToasts, writeStored,
   type Command, type Credit, type HelpProvider, type MenuEntry, type PaneRect, type SearchItem, type Theme,
 } from "@paperboatlab/ui";
-import { EditorSettingsKey, EditorTabs, afterClose, orderTabs, tabMenu, useEditorSettings, type EditorPos } from "@paperboatlab/ui/editor";
+import { EditorSettingsPane, EditorTabs, afterClose, orderTabs, tabMenu, useEditorSettings, type EditorPos } from "@paperboatlab/ui/editor";
 import { FileTree, fileIconFor, type FileActions, type FileEntry } from "@paperboatlab/ui/files";
 import { ConnectHub, HubMark, OpenFile, SaveFile, type Hub } from "@paperboatlab/ui/hub";
 import { AskOpen, Start, TypedPath, Unsaved, WorkspaceWell, fileMenu, recentFor, recentMenu, shell, tilde, type RecentEntry } from "@paperboatlab/ui/workspace";
@@ -129,6 +129,8 @@ export function App() {
   const [search, setSearch] = useState(false);
   const [ask, setAsk] = useState<Ask | null>(null);
   const [dialog, setDialog] = useState<"settings" | "about" | "packages" | "help" | "hub" | "ask" | "open" | "save" | "folder" | "file" | null>(null);
+  const [settingsPage, setSettingsPage] = useState<string>();   // the page Settings opens on (Help › Keyboard shortcuts: "shortcuts")
+  const settings = (page?: string) => { setSettingsPage(page); setDialog("settings"); };
   // unsaved changes before a file (or the folder or hub holding it) closes: what closes, and what then
   const [closing, setClosing] = useState<{ what?: string; then: () => void } | null>(null);
   const notes = useToasts();
@@ -461,7 +463,7 @@ export function App() {
     ...fileMenu({
       noun: "script", workspace: ws, file: !!current, hubs: hubs.length > 0, recent: recentItems,
       onNew: () => newScript(), onOpenFile: openFile, onOpenFolder: openFolder, onConnect: connect, onSave: saveNow, onSaveAs: saveAs,
-      onCloseFile: () => { if (current) close(current); }, onCloseWorkspace: closeWorkspace, onSettings: () => setDialog("settings"),
+      onCloseFile: () => { if (current) close(current); }, onCloseWorkspace: closeWorkspace, onSettings: () => settings(),
     }),
     { id: "edit.undo", label: "Undo", menu: "edit", group: "history", shortcut: "Ctrl Z", enabled: !!doc && !doc.readOnly, why: "no script open", run: () => { const v = view(); if (v) undo(v); } },
     { id: "edit.redo", label: "Redo", menu: "edit", group: "history", shortcut: "Ctrl Shift Z", enabled: !!doc && !doc.readOnly, why: "no script open", run: () => { const v = view(); if (v) redo(v); } },
@@ -480,6 +482,9 @@ export function App() {
     { id: "help.docs", label: "Julia's docs", menu: "help", group: "docs", shortcut: "F1", icon: "question", run: () => setDialog("help") },
     ...(examples.length ? [{ id: "help.examples", label: "Examples", menu: "help", group: "docs", icon: "book", quiet: true, run: () => {},
       sub: examples.map((p): MenuEntry => ({ id: `ex:${p}`, label: base(p), run: () => open(p) })) } as Command] : []),
+    // Ctrl / in the script is the editor's (comment the lines); everywhere else it opens Settings › Shortcuts
+    { id: "help.shortcuts", label: "Keyboard shortcuts", menu: "help", group: "docs", shortcut: "Ctrl /", chord: { key: "/", ctrl: true }, icon: "keys",
+      run: () => { if (!document.activeElement?.closest('.cm-content[contenteditable="true"]')) settings("shortcuts"); } },
     { id: "help.manual", label: "Julix on GitHub", menu: "help", group: "docs", icon: "link-external", run: () => { window.open("https://github.com/paperboatlab/julix#readme", "_blank", "noopener"); } },
     { id: "help.about", label: "About Julix", menu: "help", group: "about", icon: "info", run: () => setDialog("about") },
   ];
@@ -527,8 +532,6 @@ export function App() {
           <JuliaRuntimes running={running} starting={session === "starting"} version={peekVersion} onPackages={() => setDialog("packages")} />
           <Notifications {...notes} />
           <PanelsKey panels={PANELS.map((p) => ({ id: p.side, label: p.name, keys: p.keys, shown: !hidden[p.side] }))} layout={LAYOUT} onToggle={(id) => toggle(id as Side)} />
-          <span className="sep" />
-          <ThemePicker theme={theme} onChange={setTheme} />
           <WindowKeys />
         </span>
       </header>
@@ -562,7 +565,6 @@ export function App() {
                 tabs={strip.map((p) => ({ id: p, icon: busy?.path === p ? <Spinner size={12} label="Running" /> : undefined, dirty: p === current && draft !== null && !doc?.readOnly, pinned: pinned.has(p) }))}
                 onUnpin={(p) => setPinned((s) => new Set([...s].filter((x) => x !== p)))}>
                 {isJl && <Key size="sm" kind="quiet" icon="play" onClick={runCellAtCursor} title="Run the cell at the cursor (Ctrl Enter)">Run cell</Key>}
-                {doc && <EditorSettingsKey settings={editor} onSettings={setEditor} lintNote="Julia's parser" />}
               </EditorTabs>
               {bpAt && <div className="file-menu own gmenu" style={{ left: Math.min(bpAt.x, innerWidth - 290), top: Math.min(bpAt.y, innerHeight - 200) }}>
                 <Menu label={`${base(bpAt.path)}:${bpAt.line}: breakpoint`} items={bpItems(bpAt)} onClose={() => setBpAt(null)} /></div>}
@@ -615,15 +617,26 @@ export function App() {
 
       {search && <Search items={searchItems} scopes={["All", "Files", "Variables", "Figures", "Commands", "Help"]} placeholder={ws ? `Search ${ws.name}, or run a command` : "Run a command"} onClose={() => setSearch(false)} />}
       {ask && <AskDialog ask={ask} onClose={() => setAsk(null)} />}
-      {dialog === "settings" && (
-        <Dialog title="Settings" onClose={() => setDialog(null)} actions={<Key onClick={() => setDialog(null)}>Done</Key>}>
-          <div className="sett">
-            <span>Theme</span><Segmented label="Theme" value={theme} onChange={setTheme} options={[{ value: "light", label: "Light" }, { value: "dark", label: "Dark" }, { value: "system", label: "System" }]} />
-            {ws && <><span>Julia packages</span><span><Key size="sm" onClick={() => setDialog("packages")}>Packages…</Key></span></>}
-            {hubs.length > 0 && <><span>Hub</span><span>{hub && <span className="hub-now">{hub.name}</span>}<Key size="sm" onClick={connect}>{hub ? "Switch…" : "Connect to a hub…"}</Key></span></>}
-          </div>
-        </Dialog>
-      )}
+      {dialog === "settings" && <Settings app="Julix" page={settingsPage} onClose={() => setDialog(null)} pages={[
+        { id: "general", label: "General", icon: "a-settings", body: <ThemeSetting theme={theme} onTheme={setTheme} /> },
+        { id: "julix", label: "Julix", icon: "mark-julix", body: <JuliaSettings ws={ws} home={home} julia={julia} onPackages={() => setDialog("packages")} /> },
+        { id: "editor", label: "Editor", icon: "file-code", body: <EditorSettingsPane settings={editor} onSettings={setEditor} lintNote="Julia's parser" /> },
+        ...(ws?.kind === "hub" ? [{ id: "hub", label: "Hub", icon: "mark-malachite" as const, body: <>
+          <SettingsSection title="The hub">
+            <SettingRow label="Name" hint="Julix keeps its scripts, data and figures here">
+              <span className="well">{ws.name}</span><Key size="sm" onClick={connect}>Switch hub…</Key>
+            </SettingRow>
+            <SettingRow label="Folder" hint={hub && hub.place !== "local" ? "In the cloud: its app on this computer keeps it in sync" : "On this computer"}>
+              <span className="well path" title={ws.root}><span>{`\u200e${hub?.shown ?? tilde(ws.root, home)}`}</span></span>
+            </SettingRow>
+            <SettingRow label="Close hub" hint="Julix goes back to its Start page; the hub and its files stay">
+              <Key size="sm" onClick={closeWorkspace}>Close hub</Key>
+            </SettingRow>
+          </SettingsSection>
+          <p className="settings-note">The hub's own settings (its author, history, what it leaves out) are set in Malachite.</p>
+        </> }] : []),
+        { id: "shortcuts", label: "Shortcuts", icon: "keys", body: <ShortcutList commands={[...commands, ...EDITOR_KEYS]} menus={MENUS} /> },
+      ]} />}
       {dialog === "hub" && <ConnectHub app="Julix" hubs={hubs.map(kitHub)} onClose={() => setDialog(null)}
         onConnect={(id) => { setDialog(null); if (id !== ws?.hub) toHub(id); }} onNew={() => { setDialog(null); newHub(); }} />}
       {dialog === "ask" && <AskOpen what="a script" types={TYPES} hubs={hubs.length} onLocal={pickLocal} onConnect={connect} onClose={() => setDialog(null)} />}
@@ -643,6 +656,38 @@ export function App() {
       {dialog === "packages" && <Packages julia={julia?.version} onClose={() => setDialog(null)} notify={show} />}
       <Toasts toasts={toasts} onDismiss={dismiss} />
     </div>
+  );
+}
+
+/** The keys the script and a debug run answer that no menu holds: the Shortcuts page lists them with the menus'. */
+const EDITOR_KEYS: Command[] = ([
+  ["edit.comment", "Comment or uncomment lines", "edit", "Ctrl /"],
+  ["kernel.line", "Run line or selection", "kernel", "Shift Enter"],
+  ["kernel.bp", "Toggle breakpoint", "kernel", "F9"],
+  ["kernel.continue", "Continue (a debug run waits)", "kernel", DEBUG_KEYS.continue],
+  ["kernel.pause", "Pause debugging", "kernel", DEBUG_KEYS.pause],
+  ["kernel.over", "Step over", "kernel", DEBUG_KEYS.over],
+  ["kernel.into", "Step into", "kernel", DEBUG_KEYS.into],
+  ["kernel.out", "Step out", "kernel", DEBUG_KEYS.out],
+  ["kernel.stop", "Stop debugging", "kernel", DEBUG_KEYS.stop],
+] as const).map(([id, label, menu, shortcut]) => ({ id, label, menu, group: "keys", shortcut, run: () => {} }));
+
+/** Settings › Julix: the Julia it runs on and the project it uses. Julix has no Julia settings of its own yet: paperboatd
+ *  picks the runtime, and the folder is the project. */
+function JuliaSettings({ ws, home, julia, onPackages }: { ws: Place | null; home?: string; julia?: Run["runtime"]; onPackages: () => void }) {
+  const [peek, setPeek] = useState<{ version?: string; error?: string }>();
+  useEffect(() => { api.runtimes().then((p) => setPeek({ version: p.julia?.version }), (e) => setPeek({ error: e.message })); }, []);
+  const version = julia?.version ?? peek?.version;
+  return (
+    <SettingsSection title="Julia">
+      <SettingRow label="Runtime" hint={peek?.error ? `paperboatd: ${peek.error}` : "Paperboat's Julia runtime: paperboatd starts a session for each folder"}>
+        <span className="well">{version ? `Julia ${version}` : peek ? "no Julia runtime" : "asking paperboatd…"}{julia?.backend ? ` · ${julia.backend}` : ""}</span>
+      </SettingRow>
+      <SettingRow label="Project" hint={ws ? "The folder is the Julia project: its Project.toml and Manifest.toml" : "Open a folder: it becomes the Julia project"}>
+        {ws && <span className="well path" title={ws.root}><span>{`\u200e${tilde(ws.root, home)}`}</span></span>}
+        <Key size="sm" icon="package" disabled={!ws} onClick={onPackages}>Packages…</Key>
+      </SettingRow>
+    </SettingsSection>
   );
 }
 

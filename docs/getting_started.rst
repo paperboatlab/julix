@@ -24,7 +24,7 @@ The folder
 ----------
 
 Julix opens a folder of ``.jl`` scripts, or a hub; the read-only examples are shown in every one. Without
-a folder it opens on the Start page; **File › Open folder…** (:kbd:`Ctrl K` :kbd:`Ctrl O`) picks one
+a folder it opens on the Start page; **File › Open folder…** (:kbd:`Ctrl Shift O`) picks one
 and switches at any time, without a restart. ``/?open=<path>`` opens a file: a path in the folder, or a
 whole path, which brings its folder along.
 

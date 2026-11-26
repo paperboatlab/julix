@@ -65,7 +65,8 @@ flowchart LR
   are quiet evals: queued with runs, printed not returned, so `ans` and the console stay the user's.
 - `client/`: `App.tsx` (the window: the bar (the kit's `MenuBar`: File from the kit's `fileMenu`, Edit, View,
   Kernel, Help, every item a command of one registry that the command search and `useShortcuts` read too;
-  the `WorkspaceWell`; `WindowKeys` last), the `Start` page with no workspace, the one file workflow's
+  the `WorkspaceWell`; `WindowKeys` last), the kit's `Settings` window (General: the theme; Julix: the
+  runtime and the project; Editor: `EditorSettingsPane`; Hub, in a hub; Shortcuts: `ShortcutList`), the `Start` page with no workspace, the one file workflow's
   dialogs (`AskOpen`, `ConnectHub`, our `OpenFile` / `SaveFile` over a hub, `TypedPath` in a browser,
   `Unsaved`), the system's dialogs through the Paperboat window's `shell()`, cards, the file menus, the tab strip with pinned
   tabs (kit `EditorTabs`, `tabMenu`), the debug dock over the editor (kit `DebugDock`), the breakpoint gutter's menu),
@@ -81,7 +82,7 @@ flowchart LR
   colour bars, legends, TeX labels; 3D axes on the stage, their ink and grid the paper's `--paper-ink`/`--paper-grid`).
 - 3D figures draw on the kit's stage (`@paperboatlab/ui/stage`: three.js, orbit, view cube, axes),
   shared with Simplicial's Station.
-- From `@paperboatlab/ui`: the editor with its settings key, Julia's grammar, lint and completion
+- From `@paperboatlab/ui`: the editor and its settings pane, Julia's grammar, lint and completion
   (`/editor`), the file tree (`/files`), `Plot2D`, `Heatmap`, `Colorbar`, `TexText` (`/plot`), the package
   manager (`/packages`), `HelpWindow` (F1), `VariableEditor`, the Panels key, and the rest of the kit.
 
