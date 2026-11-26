@@ -1,6 +1,6 @@
 // The Workspace card: the session's variables (filtered by name), the debugger (Debug.tsx), and every
 // figure kept, by run.
-import { Key, RemoveKey, Tabs, VariableEditor, type ValueGridValue } from "@paperboatlab/ui";
+import { Key, RemoveKey, Tabs, VariableEditor, VariableList, VariableRow, type ValueGridValue } from "@paperboatlab/ui";
 import { Heatmap, Plot2D } from "@paperboatlab/ui/plot";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, type Figure, type Variable } from "./api.ts";
@@ -37,22 +37,23 @@ export function Workspace({ tab, onTab, variables, figures, shown, onShow, onCop
       {tab === "vars" && (
         <>
           <label className="well vfilt"><input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder="Filter variables" aria-label="Filter variables" /><em>{vars.length}</em></label>
-          <div className="scroll">
-            {variables.length === 0 && <p className="none">No variables yet. Run a script (F5) or type in the console; what you define shows here.</p>}
+          <VariableList>
+            {variables.length === 0 && <p className="empty-note">No variables yet. Run a script (F5) or type in the console; what you define shows here.</p>}
+            {/* a row opens in place to its inspector; a double-click (or the inspector's Open key) opens the editor */}
             {vars.map((v) => (
-              <button key={v.name} type="button" className={`vrow${sel === v.name ? " on" : ""}`} title={`${v.name}::${v.type}\n${v.summary}\n\nDouble-click opens it`}
-                onClick={() => setSel(v.name)} onDoubleClick={() => edit(v)} onKeyDown={(e) => e.key === "Enter" && edit(v)}>
-                <span className="vn"><b>{v.name}</b><small>{short(v.type)}{v.size !== undefined && !/^\d/.test(v.summary) ? ` · ${v.size}` : ""}</small></span>
-                <span className="vv">{v.summary}</span>
-              </button>
+              <div key={v.name} title={`${v.name}::${v.type}\n${v.summary}\n\nDouble-click opens it`} onDoubleClick={(e) => (e.target as Element).closest(".var-row-head") && edit(v)}>
+                <VariableRow name={v.name} type={`${short(v.type)}${v.size !== undefined && !/^\d/.test(v.summary) ? ` · ${v.size}` : ""}`} value={v.summary}
+                  open={sel === v.name} onOpen={() => setSel(v.name)}>
+                  <Inspect v={v} onCopy={onCopy} onEdit={() => edit(v)} />
+                </VariableRow>
+              </div>
             ))}
-          </div>
-          {sel && vars.find((v) => v.name === sel) && <Inspect v={vars.find((v) => v.name === sel)!} onCopy={onCopy} />}
+          </VariableList>
         </>
       )}
       {tab === "figs" && (
         <div className="scroll">
-          {figures.length === 0 && <p className="none">No figures yet. Anything your code shows as SVG or PNG appears here, by run; try the example 03-figures.jl.</p>}
+          {figures.length === 0 && <p className="empty-note">No figures yet. Anything your code shows as SVG or PNG appears here, by run; try the example 03-figures.jl.</p>}
           {runs.map(([run, fs]) => (
             <div key={run}>
               <div className="frun"><b>{base(fs[0].source)}</b>{time(fs[0].time)}<span>{fs.length} {fs.length === 1 ? "figure" : "figures"}</span>
@@ -77,9 +78,9 @@ export function Workspace({ tab, onTab, variables, figures, shown, onShow, onCop
 
 type Values = Awaited<ReturnType<typeof api.values>>;
 
-/** The selected variable: its type and value, and a real vector or matrix drawn (Plot2D, Heatmap). The
+/** The open variable (inside its kit VariableRow): its value, and a real vector or matrix drawn (Plot2D, Heatmap). The
  *  numbers come from the session when the variable changes; a scalar or anything else shows its value only. */
-function Inspect({ v, onCopy }: { v: Variable; onCopy: (text: string, what: string) => void }) {
+function Inspect({ v, onCopy, onEdit }: { v: Variable; onCopy: (text: string, what: string) => void; onEdit: () => void }) {
   const [vals, setVals] = useState<Values>(null);
   const plottable = /^(Vector|Matrix|Array|StepRange|UnitRange|LinRange|StepRangeLen|AbstractRange)\b/.test(v.type) || /^(Vector|Matrix)\{/.test(v.type);
   useEffect(() => {
@@ -90,8 +91,7 @@ function Inspect({ v, onCopy }: { v: Variable; onCopy: (text: string, what: stri
   }, [v.name, v.type, v.summary, plottable]);
   return (
     <div className="insp">
-      <div className="ih"><b>{v.name}</b><small>{v.type}{v.size !== undefined ? ` · length ${v.size}` : ""}</small>
-        <Key size="sm" kind="quiet" onClick={() => onCopy(v.summary, "Value")}>Copy value</Key></div>
+      <div className="ih"><Key size="sm" kind="quiet" onClick={onEdit}>Open…</Key><Key size="sm" kind="quiet" onClick={() => onCopy(v.summary, "Value")}>Copy value</Key></div>
       {vals?.kind === "vector" && <div className="iplot"><Plot2D series={[{ x: vals.values.map((_, i) => i + 1), y: vals.values, label: v.name }]} axes={{ grid: true, xlabel: { text: "index" } }} /></div>}
       {vals?.kind === "matrix" && <div className="iplot heat"><Heatmap values={vals.rows} /></div>}
       <pre>{v.summary}</pre>

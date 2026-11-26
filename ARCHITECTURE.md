@@ -54,18 +54,18 @@ flowchart LR
   `lint` and `complete` pass through `/api/session` as the runtime answers them. Julix's own questions
   (a variable's numbers for the plot and the variable editor, setting them, Help's names and docstrings)
   are quiet evals: queued with runs, printed not returned, so `ans` and the console stay the user's.
-- `client/`: `App.tsx` (the window: bar with the kit's `HubSelector` while in a hub, cards, dialogs (Connect to a hub… is the kit's `ConnectHub`), Ctrl K, the file menus, the tab menu with pinned
-  tabs (kit `tabMenu`), the debug dock over the editor (kit `DebugDock`), the breakpoint gutter's menu),
+- `client/`: `App.tsx` (the window: bar with the kit's `HubSelector` while in a hub, cards, dialogs (Connect to a hub… is the kit's `ConnectHub`), Ctrl K, the file menus, the tab strip with pinned
+  tabs (kit `EditorTabs`, `tabMenu`), the debug dock over the editor (kit `DebugDock`), the breakpoint gutter's menu),
   `Code.tsx` (the kit's Editor with Julix's cells and run keys, the running block's outline and spinner,
   the inline result chips, the breakpoint gutter and the line a debug run waits at), `Debug.tsx` (the
   Debug tab: Start debugging, call stack, locals, Watch, breakpoints; breakpoints and Watch kept in the browser), `cells.ts` (where cells start and end), `results.ts` (what each top-level line of a run made:
   names, a function, a drawing; per file, the last run's), `Console.tsx` (runs and
-  the REPL line), `traceback.ts`, `Workspace.tsx` (Variables with the selected one plotted, Figures),
-  `Keys.tsx` (the runtimes key), `Packages.tsx` (the packages dialog), `api.ts` (with the session the
+  the REPL line), `traceback.ts`, `Workspace.tsx` (Variables on the kit's `VariableList`, the open row plotted, Figures),
+  `Keys.tsx` (the folder's Julia session as the kit's `RuntimesKey`), `Packages.tsx` (the packages dialog), `api.ts` (with the session the
   editor lints and completes through).
 - `client/figure/`: `Figure.tsx` (a figure file: a JulixPlot scene to FigureView, else its image),
   `FigureView.tsx` and `scene.ts` (from legacy MX: the figure's grid; 2D axes on the kit's `Plot2D`,
-  colour bars, legends, TeX labels; 3D axes on the stage).
+  colour bars, legends, TeX labels; 3D axes on the stage, their ink and grid the paper's `--paper-ink`/`--paper-grid`).
 - 3D figures draw on the kit's stage (`@paperboatlab/ui/stage`: three.js, orbit, view cube, axes),
   shared with Simplicial's Station.
 - From `@paperboatlab/ui`: the editor with its settings key, Julia's grammar, lint and completion

@@ -50,26 +50,26 @@ export function Debug({ paused, debugging, current, breakpoints, onStart, onComm
       {debugging && !paused && <div className="dstart"><p className="drun"><Spinner size={12} /> running in the debugger</p><Key size="sm" icon="debug-pause" title={`Pause (${DEBUG_KEYS.pause})`} onClick={() => onCommand("pause")}>Pause</Key></div>}
       {paused && (
         <>
-          <div className="dhead">Call stack<small>{paused.reason === "breakpoint" ? "at a breakpoint" : paused.reason === "pause" ? "paused" : "stepped"}</small></div>
+          <div className="dhead group-label">Call stack<small>{paused.reason === "breakpoint" ? "at a breakpoint" : paused.reason === "pause" ? "paused" : "stepped"}</small></div>
           {paused.frames.map((f) => (
             <button key={f.id} type="button" className={`drow${frame === f.id ? " on" : ""}`} onClick={() => setFrame(f.id)} onDoubleClick={() => onOpen(paused.source, f.line)}>
               <b>{f.name}</b><small>{base(paused.source)}:{f.line}</small>
             </button>
           ))}
-          <div className="dhead">Locals<small>{locals.length}</small></div>
-          {locals.length === 0 && <p className="none">None yet in this frame.</p>}
+          <div className="dhead group-label">Locals<small>{locals.length}</small></div>
+          {locals.length === 0 && <p className="empty-note">None yet in this frame.</p>}
           {locals.map((v) => <div key={v.name} className="drow" title={`${v.name}::${v.type}\n${v.summary}`}><b>{v.name}</b><small>{v.type}</small><span>{v.summary}</span></div>)}
         </>
       )}
-      <div className="dhead">Watch<small>{paused ? "in the frame" : "read when stopped"}</small></div>
+      <div className="dhead group-label">Watch<small>{paused ? "in the frame" : "read when stopped"}</small></div>
       {watch.map((w) => (
         <div key={w} className="drow"><b>{w}</b><span>{paused ? values[w] ?? "…" : "not running"}</span>
           <RemoveKey label={`Stop watching ${w}`} onClick={() => setWatch(watch.filter((x) => x !== w))} /></div>
       ))}
       <label className="well dadd"><input value={adding} onChange={(e) => setAdding(e.target.value)} placeholder="Add an expression" aria-label="Add a watch expression"
         onKeyDown={(e) => { if (e.key === "Enter" && adding.trim() && !watch.includes(adding.trim())) { setWatch([...watch, adding.trim()]); setAdding(""); } }} /></label>
-      <div className="dhead">Breakpoints<small>{all.length}</small></div>
-      {all.length === 0 && <p className="none">None. Click beside a line number, or F9 on the line.</p>}
+      <div className="dhead group-label">Breakpoints<small>{all.length}</small></div>
+      {all.length === 0 && <p className="empty-note">None. Click beside a line number, or F9 on the line.</p>}
       {all.map(({ path, b }) => (
         <div key={`${path}:${b.line}`} className={`drow bpr${b.enabled === false ? " off" : ""}`}>
           <input type="checkbox" checked={b.enabled !== false} aria-label={`${base(path)}:${b.line} on`} onChange={(e) => change(path, b.line, (x) => ({ ...x, enabled: e.target.checked }))} />
