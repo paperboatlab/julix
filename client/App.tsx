@@ -395,7 +395,7 @@ export function App() {
   const julia = runs.findLast((r) => r.runtime)?.runtime;
 
   return (
-    <div className="win">
+    <div className="win frame">
       <header className="bar">
         <span className="lk"><AppMark app="julix" size={26} idle={!running} label="Julix" /><span className="wm">Julix</span></span>
         {hub
@@ -412,9 +412,9 @@ export function App() {
               : <Key busy onClick={() => api.interrupt().catch(fail)} title="Interrupt (Ctrl C in the console)"><Elapsed since={now?.started} /><Icon name="debug-stop" />Stop</Key>
             : <Key kind="primary" icon="play" disabled={!isJl} onClick={() => run("file")} title={isJl ? `Run ${base(current!)} (F5)` : "Open a .jl script to run it"}>Run{isJl && <span className="runwhat">{base(current!)}</span>}</Key>}
           <JuliaRuntimes running={running} starting={session === "starting"} version={peekVersion} onPackages={() => setDialog("packages")} />
+          <Notifications {...notes} />
           <PanelsKey panels={PANELS.map((p) => ({ id: p.side, label: p.name, keys: p.keys, shown: !hidden[p.side] }))} layout={LAYOUT} onToggle={(id) => toggle(id as Side)} />
           <span className="sep" />
-          <Notifications {...notes} />
           <ThemePicker theme={theme} onChange={setTheme} />
         </span>
       </header>
@@ -430,7 +430,7 @@ export function App() {
           </>}
         </Panel>
 
-        <div className="mid">
+        <div className="mid bay">
           <Split className={`top${hidden.f ? " fig-hidden" : ""}`} sized="end" size={hidden.f ? 38 : figW} defaultSize={figWidth()} min={320} otherMin={320}
             onSize={setFigW} onHidden={() => toggle("f", true)} label="Figure width">
             <section className="panel ed" aria-label="Script">
