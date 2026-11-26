@@ -2,7 +2,7 @@
 // Drives @paperboat/shared Plot2D (pan, box-zoom, wheel-zoom, hover readout, dual cursors A/B,
 // linked axes, twinx) and @paperboat/shared/station SceneView (OrbitControls, CAD viewCube,
 // home reset, Persp/Iso, 3D grids & surface wireframes) while emitting ViewState for export.
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { Colorbar, formatCoord, paperClass, Plot2D, TexText, type PlotViewLimits, type PlotViewState } from "@paperboatlab/ui/plot";
 import { SceneView, type SceneCameraState, type ScenePlotPick } from "@paperboatlab/ui/stage";
 
@@ -31,12 +31,13 @@ import {
   type FigureScene,
 } from "./scene.ts";
 
-function isDarkHex(color: string): boolean {
-  const m = /^#([0-9a-f]{6})$/i.exec(color.trim());
-  if (!m) return false;
-  const n = parseInt(m[1], 16);
-  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
-  return (0.2126 * r + 0.7152 * g + 0.0722 * b) < 128;
+/** A CSS colour laid over `under`, as the one opaque hex three.js reads (the dark paper's grid has alpha). */
+function opaque(color: string, under: string): string {
+  const g = Object.assign(document.createElement("canvas"), { width: 1, height: 1 }).getContext("2d", { willReadFrequently: true })!;
+  g.fillStyle = under; g.fillRect(0, 0, 1, 1);
+  g.fillStyle = color; g.fillRect(0, 0, 1, 1);
+  const [r, gr, b] = g.getImageData(0, 0, 1, 1).data;
+  return `#${((1 << 24) | (r << 16) | (gr << 8) | b).toString(16).slice(1)}`;
 }
 
 const cssTracks = (tracks: readonly SceneTrack[]) =>
@@ -200,8 +201,15 @@ function Axis3Cell({
   }, [ax.azimuth, ax.elevation, globalResetKey, homeCam, initialGrid, localReset]);
 
   const bgColor = ax.backgroundcolor !== "transparent" ? ax.backgroundcolor : background;
-  const darkBg = isDarkHex(bgColor);
-  const sceneData = useMemo(() => axis3ToSceneData(ax, grid, darkBg), [ax, grid, darkBg]);
+  const stageBg = bgColor !== "transparent" ? bgColor : "#ffffff";
+  // the axis's ink and grid are its paper's (--paper-ink, --paper-grid under .pb-paper-*), as Plot2D's
+  const stageRef = useRef<HTMLDivElement>(null);
+  const [paper, setPaper] = useState<{ ink: string; grid: string } | null>(null);
+  useLayoutEffect(() => {
+    const css = getComputedStyle(stageRef.current!);
+    setPaper({ ink: css.getPropertyValue("--paper-ink").trim(), grid: opaque(css.getPropertyValue("--paper-grid").trim(), stageBg) });
+  }, [stageBg]);
+  const sceneData = useMemo(() => paper && axis3ToSceneData(ax, grid, paper), [ax, grid, paper]);
   const viewSpec = useMemo(() => ({
     mode: "3d" as const,
     camera: { fov: homeCam.fov, eye: homeCam.eye, target: homeCam.target },
@@ -276,8 +284,8 @@ function Axis3Cell({
       {ax.title ? (
         <div className="fig-ax3-title"><TexText text={ax.title} /></div>
       ) : null}
-      <div className="fig-ax3-stage">
-        <div className="scene-wrap">
+      <div ref={stageRef} className={`fig-ax3-stage ${paperClass(stageBg)}`}>
+        {sceneData && <div className="scene-wrap">
           <SceneView
             key={`${ax.index}:${globalResetKey}:${localReset}`}
             entities={{}}
@@ -287,14 +295,14 @@ function Axis3Cell({
             cube="compact"
             floorGrid={false}
             axes={false}
-            background={bgColor !== "transparent" ? bgColor : "#ffffff"}
+            background={stageBg}
             labels={sceneData.labels}
             plots={sceneData.layers}
             pickedPoint={picked3d?.scene ?? null}
             onCameraChange={handleCameraChange}
             onPlotPick={handlePlotPick}
           />
-        </div>
+        </div>}
       </div>
       <div className="pb-plot2d-foot fig-ax3-foot">
         <div className="fig-ax3-tools">

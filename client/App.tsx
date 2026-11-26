@@ -6,7 +6,7 @@ import {
   About, AppMark, DebugDock, DEBUG_KEYS, Dialog, HelpWindow, Icon, Key, Menu, Notifications, Panel, PanelsKey, Search, Segmented, Spinner, Split, ThemePicker, Toasts, chordMatches, readStored, typing, useTheme, useToasts, writeStored,
   type Command, type Credit, type HelpProvider, type MenuEntry, type PaneRect, type SearchItem, type Theme,
 } from "@paperboatlab/ui";
-import { EditorSettingsKey, TabMenu, afterClose, orderTabs, tabMenu, useEditorSettings, type EditorPos } from "@paperboatlab/ui/editor";
+import { EditorSettingsKey, EditorTabs, afterClose, orderTabs, tabMenu, useEditorSettings, type EditorPos } from "@paperboatlab/ui/editor";
 import { FileTree, fileIconFor, type FileActions, type FileEntry } from "@paperboatlab/ui/files";
 import { ConnectHub, HubSelector, type Hub } from "@paperboatlab/ui/hub";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -14,7 +14,7 @@ import { api, listen, session as juliaSession, type Breakpoint, type DebugComman
 import { cellAt, cells } from "./cells.ts";
 import { Code } from "./Code.tsx";
 import { Console } from "./Console.tsx";
-import { RuntimesKey } from "./Keys.tsx";
+import { JuliaRuntimes } from "./Keys.tsx";
 import { Packages } from "./Packages.tsx";
 import { Workspace, type FigureRef, type WorkspaceTab } from "./Workspace.tsx";
 import { Debug } from "./Debug.tsx";
@@ -42,8 +42,9 @@ const FILES_W = 250, WORKSPACE_W = 300;   // the side cards' widths (hidden, the
 /** The server's tree as the kit's FileTree takes it: one row per entry, its depth beside it. */
 const rows = (es: Entry[], depth = 0): FileEntry[] =>
   es.flatMap((e) => [{ path: e.path, name: e.name, depth, kind: e.kind === "dir" ? "folder" : "file" } as FileEntry, ...(e.kind === "dir" ? rows(e.children ?? [], depth + 1) : [])]);
-function TypeIcon({ name, folder = false }: { name: string; folder?: boolean }) {
-  const { icon, tone } = fileIconFor(name, folder ? "folder" : "file");
+/** The folder's icon in the bar, in the file tree's folder colour. */
+function FolderIcon() {
+  const { icon, tone } = fileIconFor("", "folder");
   return <span className="fi" style={{ color: `var(--file-${tone})` }}><Icon name={icon} size={14} /></span>;
 }
 const kitHub = (h: HubInfo): Hub => ({ id: h.id, name: h.name, place: h.place, path: h.shown, missing: h.missing, conflicts: h.conflicts });
@@ -73,7 +74,6 @@ export function App() {
   const [current, setCurrent] = useState<string | null>(() => readStored("julix.tabs", isList)?.[0] ?? null);
   const [pinned, setPinned] = useState<Set<string>>(() => new Set(readStored("julix.pinned", isList) ?? []));
   const [bpAt, setBpAt] = useState<{ path: string; line: number; x: number; y: number } | null>(null);   // the breakpoint gutter's right-click menu
-  const [tabAt, setTabAt] = useState<{ path: string; x: number; y: number } | null>(null);   // a tab's right-click menu
   const [doc, setDoc] = useState<Doc | null>(null);
   const [draft, setDraft] = useState<string | null>(null);
   const [cursor, setCursor] = useState({ line: 1, col: 1 });
@@ -397,24 +397,23 @@ export function App() {
   return (
     <div className="win">
       <header className="bar">
-        <AppMark app="julix" size={26} idle={!running} label="Julix" />
-        <span className="wm">Julix</span>
+        <span className="lk"><AppMark app="julix" size={26} idle={!running} label="Julix" /><span className="wm">Julix</span></span>
         {hub
-          ? <span className="proj-hub" onClickCapture={() => { readHubs(); }}>
+          ? <span className="bar-hub" onClickCapture={() => { readHubs(); }}>
               <HubSelector app="Julix" hub={kitHub(hub)} hubs={hubs.map(kitHub)} onSwitch={(id) => connectHub(id)} onNew={newHub}
                 onOpenInMalachite={hub.missing ? undefined : () => { api.hubInMalachite(hub.id).then(() => show({ title: `${hub.name} opens in Malachite`, state: "done" }), fail); }}
                 onDisconnect={() => connectHub(null)} />
             </span>
-          : <span className="well proj" title={folder?.root}><TypeIcon name="" folder />{folder?.name ?? "…"}</span>}
+          : <span className="well bar-folder" title={folder?.root}><FolderIcon />{folder?.name ?? "…"}</span>}
         <span className="bend">
           {running
             ? debugging
               ? <Key busy onClick={() => command("stop")} title={`Stop debugging (${DEBUG_KEYS.stop})`}>{paused ? "paused" : <Elapsed since={now?.started} />}<Icon name="debug-stop" />Stop</Key>
               : <Key busy onClick={() => api.interrupt().catch(fail)} title="Interrupt (Ctrl C in the console)"><Elapsed since={now?.started} /><Icon name="debug-stop" />Stop</Key>
             : <Key kind="primary" icon="play" disabled={!isJl} onClick={() => run("file")} title={isJl ? `Run ${base(current!)} (F5)` : "Open a .jl script to run it"}>Run{isJl && <span className="runwhat">{base(current!)}</span>}</Key>}
-          <RuntimesKey running={running} starting={session === "starting"} version={peekVersion} onPackages={() => setDialog("packages")} />
+          <JuliaRuntimes running={running} starting={session === "starting"} version={peekVersion} onPackages={() => setDialog("packages")} />
           <PanelsKey panels={PANELS.map((p) => ({ id: p.side, label: p.name, keys: p.keys, shown: !hidden[p.side] }))} layout={LAYOUT} onToggle={(id) => toggle(id as Side)} />
-          <span className="lsep" />
+          <span className="sep" />
           <Notifications {...notes} />
           <ThemePicker theme={theme} onChange={setTheme} />
         </span>
@@ -422,7 +421,7 @@ export function App() {
 
       <main className="ws">
         <Panel name={folder?.name ?? "Files"} count={`${files(tree.files).length}`} side="left" hidden={hidden.l} onHidden={(h) => toggle("l", h)} icon="folder" width={FILES_W}
-          head={<span className="tools"><Key size="sm" kind="quiet" round icon="new-file" label="New script (Ctrl N)" onClick={() => newScript("")} /><Key size="sm" kind="quiet" round icon="new-folder" label="New folder" onClick={() => newFolder("")} /></span>}>
+          tools={<><Key size="sm" kind="quiet" round icon="new-file" label="New script (Ctrl N)" onClick={() => newScript("")} /><Key size="sm" kind="quiet" round icon="new-folder" label="New folder" onClick={() => newFolder("")} /></>}>
           <FileTree entries={rows(tree.files)} active={current ?? undefined} actions={treeActions} menu={menuFor} ariaLabel="Files"
             labels={{ newFile: "New script", empty: "No files yet: make a script (Ctrl N), or copy an example." }} />
           {tree.examples.length > 0 && <>
@@ -435,24 +434,14 @@ export function App() {
           <Split className={`top${hidden.f ? " fig-hidden" : ""}`} sized="end" size={hidden.f ? 38 : figW} defaultSize={figWidth()} min={320} otherMin={320}
             onSize={setFigW} onHidden={() => toggle("f", true)} label="Figure width">
             <section className="panel ed" aria-label="Script">
-              <div className="ntabs">
-                <div className="tabs2" role="tablist">
-                  {strip.map((p) => (
-                    <span key={p} role="tab" aria-selected={p === current} className={`${p === current ? "on" : ""}${tabAt?.path === p ? " ctx" : ""}`} onClick={() => open(p)}
-                      onAuxClick={(e) => e.button === 1 && close(p)} onContextMenu={(e) => { e.preventDefault(); setTabAt({ path: p, x: e.clientX, y: e.clientY }); }}>
-                      {busy?.path === p ? <Spinner size={12} label="Running" /> : <TypeIcon name={p} />}{base(p)}{p === current && draft !== null && !doc?.readOnly && <i className="dot" title="Saving" />}
-                      {pinned.has(p)
-                        ? <button type="button" className="tx" aria-label={`Unpin ${base(p)}`} title="Pinned: click to unpin" onClick={(e) => { e.stopPropagation(); setPinned((s) => new Set([...s].filter((x) => x !== p))); }}><Icon name="pin" size={12} /></button>
-                        : <button type="button" className="tx" aria-label={`Close ${base(p)}`} onClick={(e) => { e.stopPropagation(); close(p); }}>×</button>}
-                    </span>
-                  ))}
-                </div>
-                {bpAt && <div className="file-menu own gmenu" style={{ left: Math.min(bpAt.x, innerWidth - 290), top: Math.min(bpAt.y, innerHeight - 200) }}>
-                  <Menu label={`${base(bpAt.path)}:${bpAt.line}: breakpoint`} items={bpItems(bpAt)} onClose={() => setBpAt(null)} /></div>}
-                {tabAt && <TabMenu path={tabAt.path} x={tabAt.x} y={tabAt.y} items={tabItems(tabAt.path)} onClose={() => setTabAt(null)} />}
+              <EditorTabs label="Open scripts" current={current} onShow={open} onClose={close} menu={tabItems}
+                tabs={strip.map((p) => ({ id: p, icon: busy?.path === p ? <Spinner size={12} label="Running" /> : undefined, dirty: p === current && draft !== null && !doc?.readOnly, pinned: pinned.has(p) }))}
+                onUnpin={(p) => setPinned((s) => new Set([...s].filter((x) => x !== p)))}>
                 {isJl && <Key size="sm" kind="quiet" icon="play" onClick={runCellAtCursor} title="Run the cell at the cursor (Ctrl Enter)">Run cell</Key>}
                 {doc && <EditorSettingsKey settings={editor} onSettings={setEditor} lintNote="Julia's parser" />}
-              </div>
+              </EditorTabs>
+              {bpAt && <div className="file-menu own gmenu" style={{ left: Math.min(bpAt.x, innerWidth - 290), top: Math.min(bpAt.y, innerHeight - 200) }}>
+                <Menu label={`${base(bpAt.path)}:${bpAt.line}: breakpoint`} items={bpItems(bpAt)} onClose={() => setBpAt(null)} /></div>}
               {doc?.readOnly && (
                 <div className="ro">An example: read-only. Run it as it is, or <button type="button" className="lnk" onClick={() => copyIn(doc.path)}>copy it to your folder</button> to change it.</div>
               )}
@@ -460,10 +449,10 @@ export function App() {
                 {debugging && <DebugDock paused={!!paused} where={paused && `${base(paused.source)}:${paused.line}${paused.frames[0] ? ` · in ${paused.frames[0].name}` : ""}`}
                   onContinue={() => command("continue")} onPause={() => command("pause")} onStepOver={() => command("over")} onStepInto={() => command("into")}
                   onStepOut={() => command("out")} onStop={() => command("stop")} />}
-                {!current && <div className="empty"><AppMark app="julix" size={72} idle label="" /><p>Open a script, or make one. The examples show how Julix runs code.</p>
-                  <span className="row"><Key kind="primary" icon="new-file" onClick={() => newScript("")}>New script</Key>{tree.examples[0] && <Key onClick={() => open(files(tree.examples)[0])}>Open an example</Key>}</span></div>}
+                {!current && <div className="empty-state"><div className="welcome"><AppMark app="julix" size={72} idle label="" /><p>Open a script, or make one. The examples show how Julix runs code.</p>
+                  <span><Key kind="primary" icon="new-file" onClick={() => newScript("")}>New script</Key>{tree.examples[0] && <Key onClick={() => open(files(tree.examples)[0])}>Open an example</Key>}</span></div></div>}
                 {doc && doc.path === current && (IMAGE.has(typeOf(doc.path))
-                  ? <div className="empty"><p>An image: Julix edits scripts and text.</p></div>
+                  ? <p className="empty-state">An image: Julix edits scripts and text.</p>
                   : <Code key={`${doc.path}:${doc.readOnly}:${doc.v}`} path={doc.path} text={text} readOnly={doc.readOnly} onChange={setDraft}
                       onPos={(p: EditorPos) => setCursor({ line: p.line, col: p.col })} busy={busy?.path === doc.path ? busy : undefined} settings={editor}
                       breakpoints={bps[doc.path]} onBreakpoint={(l) => toggleBreakpoint(doc.path, l)}
@@ -474,17 +463,17 @@ export function App() {
               </div>
               {doc && isJl && (
                 <div className="efoot"><span>Ln {cursor.line}, Col {cursor.col}{nCells > 1 && at ? ` · cell ${at.index + 1} of ${nCells}` : ""}</span>
-                  <span className="bend"><span><kbd>Ctrl Enter</kbd> cell</span><span><kbd>Shift Enter</kbd> line</span><span><kbd>F5</kbd> file</span></span></div>
+                  <span className="efoot-keys"><span><kbd className="kbd">Ctrl Enter</kbd> cell</span><span><kbd className="kbd">Shift Enter</kbd> line</span><span><kbd className="kbd">F5</kbd> file</span></span></div>
               )}
             </section>
 
             <Panel name={shownFig ? `Figure ${shownFig.n}` : "Figure"} count={shownFig ? base(shownFig.source) : undefined} side="right" hidden={hidden.f} onHidden={(h) => toggle("f", h)} icon="file-media" width={figW} className="figp"
-              head={shownFig && <span className="tools">{shownFig.mime === FIGURE
+              tools={shownFig && (shownFig.mime === FIGURE
                 ? <Key size="sm" kind="quiet" onClick={() => setResetSeq((n) => n + 1)} title="Back to the scripted view">Reset view</Key>
-                : <a className="key sm quiet" href={api.figure(shownFig)} download={`${base(shownFig.source).replace(/\.jl$/, "")}-figure-${shownFig.n}.${shownFig.mime === "image/png" ? "png" : "svg"}`} title="Save the figure">Export…</a>}</span>}>
+                : <a className="key sm quiet" href={api.figure(shownFig)} download={`${base(shownFig.source).replace(/\.jl$/, "")}-figure-${shownFig.n}.${shownFig.mime === "image/png" ? "png" : "svg"}`} title="Save the figure">Export…</a>)}>
               <div className="fbody">{shownFig
                 ? <FigurePane f={shownFig} label={`Figure ${shownFig.n} of ${base(shownFig.source)}`} resetSeq={resetSeq} />
-                : <div className="empty"><p>No figure yet. A JulixPlot figure appears here to pan, zoom and orbit; anything else your code shows as SVG or PNG appears as an image.</p></div>}</div>
+                : <p className="empty-state">No figure yet. A JulixPlot figure appears here to pan, zoom and orbit; anything else your code shows as SVG or PNG appears as an image.</p>}</div>
             </Panel>
           </Split>
 

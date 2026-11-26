@@ -147,7 +147,7 @@ function chips(results: Result[], vars: Variable[], onFigure: (run: string, n: n
       // at the editor's right edge, at its line's height (absolute, no top: it keeps its place in the line)
       ".cm-scroller": { position: "relative" },
       ".res": { position: "absolute", right: "8px", marginTop: "1px", display: "inline-flex", alignItems: "center", gap: "5px", height: "18px", padding: "0 6px",
-        borderRadius: "var(--radius-sm)", border: "1px solid var(--line)", background: "var(--surface-raised)", font: "10.5px var(--font-mono)",
+        borderRadius: "var(--radius-sm)", border: "1px solid var(--line)", background: "var(--surface-raised)", font: "var(--size-label) var(--font-mono)",
         color: "var(--text-muted)", whiteSpace: "nowrap", lineHeight: "16px" },
       ".res.fig": { color: "var(--accent-text)", borderColor: "color-mix(in srgb, var(--accent) 35%, var(--line))", cursor: "pointer" },
       ".res .spk": { width: "22px", height: "10px", stroke: "currentColor", fill: "none", strokeWidth: "1" },

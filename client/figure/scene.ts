@@ -769,12 +769,11 @@ export function sceneYUpToXYZ(
 export function axis3ToSceneData(
   ax: SceneAxis3D,
   gridVisible: boolean,
-  darkBg = false,
+  paper: { ink: string; grid: string },   // the paper's --paper-ink and --paper-grid (FigureView reads them)
 ): { layers: ScenePlotLayer[]; labels: SceneLabel[] } {
   const [x0, x1, y0, y1, z0, z1] = ax.limits;
   const [hx, hy, hz] = ax.half;
-  const ink = darkBg ? "#d4d4d8" : "#262626";
-  const gridCol = darkBg ? "#3a3a42" : "#d8d8d4";
+  const { ink, grid: gridCol } = paper;
   const layers: ScenePlotLayer[] = [];
   const labels: SceneLabel[] = [];
 

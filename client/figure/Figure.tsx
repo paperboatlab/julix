@@ -52,6 +52,6 @@ export function Figure({ f, label, resetSeq }: { f: FigureRef; label: string; re
   }, [scene, key, f.thumb]);
   // the hooks above run on every render: an image figure and a JulixPlot one share this pane
   if (f.mime !== FIGURE) return <div className="screen"><img src={api.figure(f)} alt={label} /></div>;
-  if (error) return <div className="empty"><p>This figure couldn't be read: {error}</p></div>;
+  if (error) return <p className="empty-state">This figure couldn't be read: {error}</p>;
   return <div className="figstage" ref={stage}><FigureView figureKey={key} scene={scene} label={label} resetSeq={resetSeq} /></div>;
 }
