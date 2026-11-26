@@ -48,6 +48,23 @@ or the hub; its menu opens another, connects, or closes it (back to Start).
 The theme is shared too: what you choose in one app is the theme every app starts in. Without Malachite,
 Julix says nothing about hubs.
 
+Settings
+--------
+
+**File › Settings…** (:kbd:`Ctrl ,`) opens one window with its pages on the left; a change applies at
+once, there is no Save.
+
+- **General**: the theme, Light, Dark or System (it follows the computer). It applies to every Paperboat
+  app; **View › Theme** lists the same three.
+- **Julix**: the Julia it runs on (Paperboat's Julia runtime; a session starts for each folder) and the
+  project, which is the folder itself, with **Packages…**.
+- **Editor**: the code's colours, font, size and line height; tab size, wrapping, autocomplete, closing
+  brackets and lint (Julia's parser).
+- **Hub**, while Julix works in a hub: its name and folder, **Switch hub…** and **Close hub**. The hub's
+  own settings (its author, how long it keeps versions) are set in Malachite.
+- **Shortcuts**: every key Julix answers, by menu. **Help › Keyboard shortcuts** (:kbd:`Ctrl /`) opens
+  this page; in the script :kbd:`Ctrl /` comments the lines instead.
+
 Keyboard shortcuts
 ------------------
 
@@ -66,7 +83,7 @@ Keyboard shortcuts
      - New script
    * - :kbd:`Ctrl O`
      - Open file…
-   * - :kbd:`Ctrl K` :kbd:`Ctrl O`
+   * - :kbd:`Ctrl Shift O`
      - Open folder…
    * - :kbd:`Ctrl S`
      - Save
@@ -78,3 +95,5 @@ Keyboard shortcuts
      - Search the folder, or run a command
    * - :kbd:`Ctrl ,`
      - Settings
+   * - :kbd:`Ctrl /`
+     - Keyboard shortcuts (Settings › Shortcuts lists them all); in the script, comment the lines
