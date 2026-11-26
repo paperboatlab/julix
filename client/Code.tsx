@@ -3,6 +3,7 @@
 // the cursor tinted, never a bar beside it) and the run keys: Ctrl Enter the cell, Shift Enter the line or
 // selection, F5 the file, Ctrl S save.
 import { Editor, languageFor, type EditorPos, type EditorSettings, type Session } from "@paperboatlab/ui/editor";
+import { rgbHex, sampleColormap } from "@paperboatlab/ui/plot";
 import { Prec, RangeSet, RangeSetBuilder } from "@codemirror/state";
 import { Decoration, EditorView, GutterMarker, ViewPlugin, WidgetType, gutter, type DecorationSet, type KeyBinding, type ViewUpdate } from "@codemirror/view";
 import { useMemo, useRef } from "react";
@@ -72,9 +73,7 @@ function running(busy: { from: number; to: number }) {
 // Inline results: a chip at a line's right end, as long as the line reads as it did when it ran.
 type Chip = { kind: "text" | "vector" | "matrix" | "figure"; label: string; key: string; name?: string; open?: () => void };
 const shortType = (t: string) => t.replace(/\{.*$/, "").replace(/^.*\./, "");
-const HEAT = [[27, 16, 48], [122, 93, 180], [246, 211, 139]];   // the mockup's heat chip
-const heat = (u: number) => { const k = Math.min(1, Math.max(0, u)) * 2, i = Math.min(1, Math.floor(k)), f = k - i;
-  return `rgb(${HEAT[i].map((c, j) => Math.round(c + (HEAT[i + 1][j] - c) * f)).join(",")})`; };
+const heat = (u: number) => rgbHex(sampleColormap(undefined, u));   // the kit Heatmap's default map, as the inspector
 
 function chipOf(e: Result, vars: Map<string, Variable>, onFigure: (run: string, n: number) => void): Chip | null {
   const key = `${e.run}:${e.r.line}`, figure = e.fig ? { kind: "figure" as const, label: "→ figure", key, open: () => onFigure(e.run, e.fig!) } : null;
