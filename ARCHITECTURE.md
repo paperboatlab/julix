@@ -37,7 +37,8 @@ flowchart LR
   buffers; `<n>.thumb.png` its preview, which the page sends once it has drawn the figure, since the
   runtime sends a scene and never an image). Variables are asked after each run, before the run reports
   done. Interrupt goes through the daemon (SIGINT); no answer within 3 s restarts the session. Before the
-  first session JulixPlot is added to the folder's project if `Project.toml` doesn't list it; a runtime
+  first session the folder's packages are made ready (`server/packages.ts`), the start's toast following Pkg's
+  latest line; a runtime
   that ends while starting is noticed at once (its lease's event) and retried once. A debug run is an
   `eval` with `debug` and the file's breakpoints (paperboat docs/runtime.md "Debugging"); its stops
   become `debug` events (the last kept for a page that opens later), and `/api/debug` steers it at once,
@@ -49,9 +50,12 @@ flowchart LR
   `Sessions.shared` reads them in one quiet eval: real numbers, Bools, one-line text, real arrays as a matrix by its
   rows up to 4096 values (larger: a note). Only the julix command shares (`serve`'s `share`), never a test. The
   station resolves the flow's own variables first and these under the names left; closing the socket drops them.
-- `server/packages.ts`: JulixPlot added to the folder's project before its first session, the platform's way
-  (the CLI's recipe): an exec lease with the network for that step only; `JULIXPLOT=<checkout>` develops a local
-  JulixPlot. Julix has no package manager of its own: Paperboat Launcher › Runtimes › julia › Packages is the one
+- `server/packages.ts`: the folder's packages before its first session, the platform's way (the CLI's recipe):
+  an exec lease with the network for that step only. JulixPlot is added (a writable project) when `Project.toml`
+  doesn't list it; otherwise what `Manifest.toml` records and the folder's deps volume lacks (paperboatd keeps one
+  per runtime and project path: an example, a moved folder, a fresh install start empty; checked on the host, by
+  Pkg's `packages/<name>/<slug>` folders) is instantiated with the project read-only, the Manifest left as it is
+  (julix#39). `JULIXPLOT=<checkout>` develops a local JulixPlot. Julix has no package manager of its own: Paperboat Launcher › Runtimes › julia › Packages is the one
   for Julia (`paperboat package add|remove julia …`, paperboat#50); the Runtimes key, Settings › Julix and the
   disabled Kernel › Julia packages… say so, and Kernel › Manage runtimes… goes there (`POST /api/launcher`:
   `paperboat launcher --page runtimes --runtime julia`, paperboat#69).

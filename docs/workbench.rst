@@ -63,7 +63,8 @@ once, there is no Save.
 - **General**: the theme, Light, Dark or System (it follows the computer), and the interface scale, Compact (75 %), Default or Large (125 %), which sizes text, icons and keys alike. Both
   apply to every Paperboat app; **View › Theme** lists the same three themes.
 - **Julix**: the Julia it runs on (Paperboat's Julia runtime; a session starts for each folder) and the
-  project, which is the folder itself. Julix adds JulixPlot to it before the folder's first session; every
+  project, which is the folder itself. Before the folder's first session Julix adds JulixPlot to it, or installs
+  what its ``Manifest.toml`` records when Paperboat doesn't have it yet (an example's pinned JulixPlot); every
   other package is added and removed in Paperboat Launcher › **Runtimes** › **julia** › **Packages**, the
   one package manager for Julia (choose the folder there as the project).
 - **Editor**: the code's colours, font, size and line height; tab size, wrapping, autocomplete, closing
