@@ -50,8 +50,11 @@ flowchart LR
   `Sessions.shared` reads them in one quiet eval: real numbers, Bools, one-line text, real arrays as a matrix by its
   rows up to 4096 values (larger: a note). Only the julix command shares (`serve`'s `share`), never a test. The
   station resolves the flow's own variables first and these under the names left; closing the socket drops them.
-- `server/packages.ts`: the folder's Julia packages the platform's way (the CLI's recipe): an exec lease
-  changes the project, with the network for an add only; `JULIXPLOT=<checkout>` develops a local JulixPlot.
+- `server/packages.ts`: JulixPlot added to the folder's project before its first session, the platform's way
+  (the CLI's recipe): an exec lease with the network for that step only; `JULIXPLOT=<checkout>` develops a local
+  JulixPlot. Julix has no package manager of its own: Paperboat Launcher › Runtimes › julia › Packages is the one
+  for Julia (`paperboat package add|remove julia …`, paperboat#50); the Runtimes key, Settings › Julix and the
+  disabled Kernel › Julia packages… say so.
 - `server/hubs.ts`: the hubs (paperboat#16), from `paperboat hub list --json` (`$PAPERBOAT_BIN` or on PATH, no
   shell), read when the page asks; a CLI that is missing or fails means no hubs, and the page says nothing
   about them (no Malachite, no hub). `holds` counts a hub's scripts for Connect to a hub. `.malachite/` is
@@ -82,7 +85,7 @@ flowchart LR
   Debug tab: Start debugging, call stack, locals, Watch, breakpoints; breakpoints and Watch kept in the browser), `cells.ts` (where cells start and end), `results.ts` (what each top-level line of a run made:
   names, a function, a drawing; per file, the last run's), `Console.tsx` (runs and
   the REPL line), `traceback.ts`, `Workspace.tsx` (Variables on the kit's `VariableList`, the open row plotted, Figures),
-  `Keys.tsx` (the folder's Julia session as the kit's `RuntimesKey`), `Packages.tsx` (the packages dialog), `api.ts` (with the session the
+  `Keys.tsx` (the folder's Julia session as the kit's `RuntimesKey`), `api.ts` (with the session the
   editor lints and completes through).
 - `client/figure/`: `Figure.tsx` (a figure file: a JulixPlot scene to FigureView, else its image),
   `FigureView.tsx` and `scene.ts` (from legacy MX: the figure's grid; 2D axes on the kit's `Plot2D`,
@@ -90,8 +93,7 @@ flowchart LR
 - 3D figures draw on the kit's stage (`@paperboatlab/ui/stage`: three.js, orbit, view cube, axes),
   shared with Simplicial's Station.
 - From `@paperboatlab/ui`: the editor and its settings pane, Julia's grammar, lint and completion
-  (`/editor`), the file tree (`/files`), `Plot2D`, `Heatmap`, `Colorbar`, `TexText` (`/plot`), the package
-  manager (`/packages`), `HelpWindow` (F1), `VariableEditor`, the Panels key, and the rest of the kit.
+  (`/editor`), the file tree (`/files`), `Plot2D`, `Heatmap`, `Colorbar`, `TexText` (`/plot`), `HelpWindow` (F1), `VariableEditor`, the Panels key, and the rest of the kit.
 
 ## 3. Invariants
 

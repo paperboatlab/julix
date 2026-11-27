@@ -20,7 +20,6 @@ export type HubInfo = { id: string; name: string; path: string; shown: string; p
 export type Workspace = { kind: "folder" | "hub"; root: string; name: string; hub?: string };
 export type Theme = "light" | "dark" | "system";
 export type RecentEntry = { kind: "folder" | "hub" | "file"; path: string; hub?: string; app?: string; at: number };
-export type Package = { name: string; version: string };
 export type Variable = { name: string; type: string; summary: string; size?: number };
 export type Breakpoint = { line: number; condition?: string; enabled?: boolean };
 /** Where a debug run waits (paperboat docs/runtime.md "Debugging"): frames innermost first, the top one's locals. */
@@ -86,8 +85,6 @@ export const api = {
   saveThumb: (run: string, n: number, png: string) => call("POST", "/api/figure/thumb", { run, n, png }),
   removeFigures: (run: string) => call("POST", "/api/figures/remove", { run }),
   runtimes: () => call<Peek>("GET", "/api/runtimes"),
-  packages: () => call<{ packages: Package[] }>("GET", "/api/packages"),
-  changePackages: (op: "add" | "remove", name: string) => call<{ packages: Package[]; log: string }>("POST", "/api/packages", { op, name }),
   figure: (f: { run: string; n: number }) => `/api/figure?run=${q(f.run)}&n=${f.n}`,
   thumb: (f: { run: string; n: number }) => `/api/figure?run=${q(f.run)}&n=${f.n}&thumb`,
 };

@@ -7,7 +7,7 @@ import path from "node:path";
 import { Control, type Lease } from "./control.ts";
 import { Folder } from "./folder.ts";
 import { Runtime, RuntimeError } from "./runtime.ts";
-import { hasJulixPlot, packages } from "./packages.ts";
+import { addJulixPlot, hasJulixPlot } from "./packages.ts";
 
 export type Kind = "file" | "cell" | "line" | "console";
 /** A breakpoint in a file (paperboat docs/runtime.md "Debugging"): a line, and Julia code that must be true. */
@@ -93,7 +93,7 @@ export class Sessions {
     this.session ??= (async () => {
       this.set("starting");
       // JulixPlot comes with Julix: added to the folder's project before the first session, once
-      if (!hasJulixPlot(this.folder.root)) this.emit({ type: "packages", packages: (await packages(this.control, this.folder, "add", "JulixPlot")).packages });
+      if (!hasJulixPlot(this.folder.root)) await addJulixPlot(this.control, this.folder);
       // ponytail: one retry; a Julia that ends while starting (seen once, exit 0, no output) usually starts the second time
       const start = async (): Promise<{ lease: Lease; rt: Runtime }> => {
         const lease = await this.control.call<Lease>("acquire", { runtime: "julia", mode: "session", project: this.folder.root, owner: OWNER(this.folder) });

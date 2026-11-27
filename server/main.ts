@@ -12,7 +12,7 @@ import { Control, ControlError, paperboatVersion } from "./control.ts";
 import { Folder, FolderError } from "./folder.ts";
 import { holds, hubs, paperboat } from "./hubs.ts";
 import { forget, recent, remember, setTheme, settings } from "./store.ts";
-import { PackageError, packages } from "./packages.ts";
+import { PackageError } from "./packages.ts";
 import { Sessions, type Kind } from "./session.ts";
 import { Share } from "./share.ts";
 
@@ -245,14 +245,6 @@ export function serve(dir: string | null, port = DEFAULT_PORT, control = new Con
         }
         case "POST /api/figure/thumb": { sessions.saveThumb(str("run"), Number(body.n), str("png")); emit({ type: "figures" }); return send(res, 200, {}); }
         case "POST /api/figures/remove": { sessions.removeFigures(str("run")); return send(res, 200, {}); }
-        case "GET /api/packages": return send(res, 200, await packages(control, folder, "list"));
-        case "POST /api/packages": {   // add (the page has asked the user: the network opens for this step) or remove
-          const op = str("op");
-          if (op !== "add" && op !== "remove") throw new FolderError("op is add or remove");
-          const r = await packages(control, folder, op, str("name"));
-          emit({ type: "packages", packages: r.packages });
-          return send(res, 200, r);
-        }
         default: return send(res, 404, { error: `no ${req.method} ${url.pathname}` });
       }
     } catch (e) {

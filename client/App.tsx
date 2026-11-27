@@ -18,8 +18,7 @@ import { api, listen, session as juliaSession, type Breakpoint, type DebugComman
 import { cellAt, cells } from "./cells.ts";
 import { Code } from "./Code.tsx";
 import { Console } from "./Console.tsx";
-import { JuliaRuntimes } from "./Keys.tsx";
-import { Packages } from "./Packages.tsx";
+import { JuliaRuntimes, PACKAGES } from "./Keys.tsx";
 import { Workspace, type FigureRef, type WorkspaceTab } from "./Workspace.tsx";
 import { Debug } from "./Debug.tsx";
 import { applyRun, type Result } from "./results.ts";
@@ -128,7 +127,7 @@ export function App() {
   const [peekVersion, setPeekVersion] = useState(0);
   const [search, setSearch] = useState(false);
   const [ask, setAsk] = useState<Ask | null>(null);
-  const [dialog, setDialog] = useState<"settings" | "about" | "packages" | "help" | "hub" | "ask" | "open" | "save" | "folder" | "file" | null>(null);
+  const [dialog, setDialog] = useState<"settings" | "about" | "help" | "hub" | "ask" | "open" | "save" | "folder" | "file" | null>(null);
   const [settingsPage, setSettingsPage] = useState<string>();   // the page Settings opens on (Help › Keyboard shortcuts: "shortcuts")
   const settings = (page?: string) => { setSettingsPage(page); setDialog("settings"); };
   // unsaved changes before a file (or the folder or hub holding it) closes: what closes, and what then
@@ -478,7 +477,7 @@ export function App() {
       ...(debugging ? { enabled: false, why: "a debug run is going" } : {}), run: () => run("file", undefined, 1, true) },
     { id: "kernel.interrupt", label: "Interrupt", menu: "kernel", group: "session", icon: "debug-pause", enabled: running, why: "nothing is running", run: () => { api.interrupt().catch(fail); } },
     { id: "kernel.restart", label: "Restart the Julia session", menu: "kernel", group: "session", icon: "debug-restart", enabled: !!ws, why: "no folder open", run: () => { api.restart().catch(fail); } },
-    { id: "kernel.packages", label: "Julia packages…", menu: "kernel", group: "packages", icon: "package", enabled: !!ws, why: "no folder open", run: () => setDialog("packages") },
+    { id: "kernel.packages", label: "Julia packages…", menu: "kernel", group: "packages", icon: "package", enabled: false, why: PACKAGES, run: () => {} },
     { id: "help.docs", label: "Julia's docs", menu: "help", group: "docs", shortcut: "F1", icon: "question", run: () => setDialog("help") },
     ...(examples.length ? [{ id: "help.examples", label: "Examples", menu: "help", group: "docs", icon: "book", quiet: true, run: () => {},
       sub: examples.map((p): MenuEntry => ({ id: `ex:${p}`, label: base(p), run: () => open(p) })) } as Command] : []),
@@ -529,7 +528,7 @@ export function App() {
               ? <Key busy onClick={() => command("stop")} title={`Stop debugging (${DEBUG_KEYS.stop})`}>{paused ? "paused" : <Elapsed since={now?.started} />}<Icon name="debug-stop" />Stop</Key>
               : <Key busy onClick={() => api.interrupt().catch(fail)} title="Interrupt (Ctrl C in the console)"><Elapsed since={now?.started} /><Icon name="debug-stop" />Stop</Key>
             : <Key kind="primary" icon="play" disabled={!isJl} onClick={() => run("file")} title={isJl ? `Run ${base(current!)} (F5)` : "Open a .jl script to run it"}>Run{isJl && <span className="runwhat">{base(current!)}</span>}</Key>}
-          <JuliaRuntimes running={running} starting={session === "starting"} version={peekVersion} onPackages={() => setDialog("packages")} />
+          <JuliaRuntimes running={running} starting={session === "starting"} version={peekVersion} />
           <Notifications {...notes} />
           <PanelsKey panels={PANELS.map((p) => ({ id: p.side, label: p.name, keys: p.keys, shown: !hidden[p.side] }))} layout={LAYOUT} onToggle={(id) => toggle(id as Side)} />
           <WindowKeys />
@@ -619,7 +618,7 @@ export function App() {
       {ask && <AskDialog ask={ask} onClose={() => setAsk(null)} />}
       {dialog === "settings" && <Settings app="Julix" page={settingsPage} onClose={() => setDialog(null)} pages={[
         { id: "general", label: "General", icon: "a-settings", body: <ThemeSetting theme={theme} onTheme={setTheme} /> },
-        { id: "julix", label: "Julix", icon: "mark-julix", body: <JuliaSettings ws={ws} home={home} julia={julia} onPackages={() => setDialog("packages")} /> },
+        { id: "julix", label: "Julix", icon: "mark-julix", body: <JuliaSettings ws={ws} home={home} julia={julia} /> },
         { id: "editor", label: "Editor", icon: "file-code", body: <EditorSettingsPane settings={editor} onSettings={setEditor} lintNote="Julia's parser" /> },
         ...(ws?.kind === "hub" ? [{ id: "hub", label: "Hub", icon: "mark-malachite" as const, body: <>
           <SettingsSection title="The hub">
@@ -653,7 +652,6 @@ export function App() {
         onDiscard={() => { const then = closing.then; setClosing(null); setDraft(null); then(); }} />}
       {dialog === "help" && <HelpWindow app="Julix" provider={help} commands={commands} onClose={() => setDialog(null)} />}
       {dialog === "about" && <AboutJulix version={info?.version ?? ""} julia={julia} onClose={() => setDialog(null)} />}
-      {dialog === "packages" && <Packages julia={julia?.version} onClose={() => setDialog(null)} notify={show} />}
       <Toasts toasts={toasts} onDismiss={dismiss} />
     </div>
   );
@@ -674,7 +672,7 @@ const EDITOR_KEYS: Command[] = ([
 
 /** Settings › Julix: the Julia it runs on and the project it uses. Julix has no Julia settings of its own yet: paperboatd
  *  picks the runtime, and the folder is the project. */
-function JuliaSettings({ ws, home, julia, onPackages }: { ws: Place | null; home?: string; julia?: Run["runtime"]; onPackages: () => void }) {
+function JuliaSettings({ ws, home, julia }: { ws: Place | null; home?: string; julia?: Run["runtime"] }) {
   const [peek, setPeek] = useState<{ version?: string; error?: string }>();
   useEffect(() => { api.runtimes().then((p) => setPeek({ version: p.julia?.version }), (e) => setPeek({ error: e.message })); }, []);
   const version = julia?.version ?? peek?.version;
@@ -683,9 +681,8 @@ function JuliaSettings({ ws, home, julia, onPackages }: { ws: Place | null; home
       <SettingRow label="Runtime" hint={peek?.error ? `paperboatd: ${peek.error}` : "Paperboat's Julia runtime: paperboatd starts a session for each folder"}>
         <span className="well">{version ? `Julia ${version}` : peek ? "no Julia runtime" : "asking paperboatd…"}{julia?.backend ? ` · ${julia.backend}` : ""}</span>
       </SettingRow>
-      <SettingRow label="Project" hint={ws ? "The folder is the Julia project: its Project.toml and Manifest.toml" : "Open a folder: it becomes the Julia project"}>
+      <SettingRow label="Project" hint={`${ws ? "The folder is the Julia project: its Project.toml and Manifest.toml" : "Open a folder: it becomes the Julia project"}. ${PACKAGES}`}>
         {ws && <span className="well path" title={ws.root}><span>{`\u200e${tilde(ws.root, home)}`}</span></span>}
-        <Key size="sm" icon="package" disabled={!ws} onClick={onPackages}>Packages…</Key>
       </SettingRow>
     </SettingsSection>
   );
