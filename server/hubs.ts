@@ -1,6 +1,7 @@
 // The hubs (paperboat#16, plans/2026-11-25_14-55_hub_standard.md §3): Malachite's, learned from
 // `paperboat hub list --json` when the page asks (the well, Connect to a hub, a file opened from outside).
 // No Malachite, no hub: a CLI that is missing, fails or has no `hub` command means no hubs, and the page says nothing.
+// The examples (paperboat#72) come from the same CLI: `paperboat example list --app julix` and `example open <id>`.
 import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -14,7 +15,10 @@ const PLACES = new Set<string>(["local", "google-drive", "onedrive", "dropbox", 
 export function paperboat(args: string[], timeout = 10_000): Promise<unknown> {
   return new Promise((resolve, reject) => {
     execFile(process.env.PAPERBOAT_BIN || "paperboat", [...args, "--json"], { timeout, maxBuffer: 4 << 20 }, (err, out, errOut) => {
-      if (err) return reject(new Error(String(errOut).trim().split("\n").pop() || err.message));
+      if (err) {   // with --json the CLI says why as {error} on stdout
+        let why: unknown; try { why = JSON.parse(out).error; } catch { /* not JSON */ }
+        return reject(new Error(typeof why === "string" ? why : String(errOut).trim().split("\n").pop() || err.message));
+      }
       try { resolve(JSON.parse(out)); } catch { reject(new Error(`paperboat ${args.join(" ")}: not JSON`)); }
     });
   });
@@ -32,6 +36,24 @@ export async function hubs(): Promise<HubInfo[]> {
     ...(h.missing ? { missing: true } : {}),
     ...(Array.isArray(h.conflicts) && h.conflicts.length ? { conflicts: h.conflicts.length } : {}),
   }));
+}
+
+/** An example as `example list` gives it (paperboat#72). */
+export type Example = { id: string; app: string; kind: string; name: string; description: string; path: string };
+
+/** Julix's examples, or [] without the CLI (or with one that fails): Julix works without Paperboat. */
+export async function examples(): Promise<Example[]> {
+  const list = await paperboat(["example", "list", "--app", "julix"], 60_000).catch(() => null);   // the first list may fetch the examples
+  if (!Array.isArray(list)) return [];
+  return list.filter((e) => e && typeof e.id === "string" && typeof e.name === "string").map((e) => ({
+    id: e.id, name: e.name, app: String(e.app ?? "julix"), kind: String(e.kind ?? "julix"), description: String(e.description ?? ""), path: String(e.path ?? ""),
+  }));
+}
+
+/** Opens an example: the CLI copies it for the user once and opens that copy in a new window. Rejects with its error. */
+export function openExample(id: string): Promise<unknown> {
+  if (!/^[\w.]+(\/[\w.-]+)*$/.test(id)) return Promise.reject(new Error(`no example ${JSON.stringify(id)}`));   // an id, never an option
+  return paperboat(["example", "open", id], 60_000);
 }
 
 /** What Julix opens (the pickers' types). */

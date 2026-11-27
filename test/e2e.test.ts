@@ -40,8 +40,8 @@ test("a script runs in a Julia session lease: output, figures, variables, errors
     assert.equal(shared.θ, undefined);
     assert.equal(shared.f, undefined);
 
-    // the figures example run whole: its two display() calls are figures (its last value, a loop, is nothing)
-    const b = await done(s.run("file", "@examples/03-figures.jl", folder.read("@examples/03-figures.jl")));
+    // a figure script run whole (test/figures.jl): its two display() calls are figures (its last value, a loop, is nothing)
+    const b = await done(s.run("file", "figures.jl", fs.readFileSync(new URL("figures.jl", import.meta.url), "utf8")));
     assert.equal(b.state, "done", JSON.stringify(b.outputs));
     assert.deepEqual(b.outputs.filter((o) => o.type === "figure").map((o) => (o as { n: number }).n), [1, 2]);
     assert.match(fs.readFileSync(s.figureFile(b.id, 1), "utf8"), /^<svg/);

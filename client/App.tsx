@@ -3,8 +3,8 @@
 // keys); Settings (File › Settings…, Ctrl ,) is the kit's window: General, Julix, Editor, Hub, Shortcuts; Files at the left; the script and its figure; the Workspace card at the right; the Console below.
 // No workspace: the Start page in the bay. Everything shown comes from the app server; the files are the record.
 import {
-  About, AppMark, DebugDock, DEBUG_KEYS, Dialog, HelpWindow, Icon, Key, Menu, MenuBar, Notifications, Panel, PanelsKey, SEARCH_CHORD, Search, SettingRow, Settings, SettingsSection, ScaleSetting, ShortcutList, Spinner, Split, ThemeSetting, Toasts, WindowKeys, isScale, readStored, useScale, useShortcuts, useTheme, useToasts, writeStored,
-  type Command, type Credit, type Scale, type HelpProvider, type MenuEntry, type PaneRect, type SearchItem, type Theme,
+  About, AppMark, DebugDock, DEBUG_KEYS, Dialog, HelpWindow, Icon, Key, Menu, MenuBar, Notifications, Panel, PanelsKey, SEARCH_CHORD, Search, SettingRow, Settings, SettingsSection, ScaleSetting, ShortcutList, Spinner, Split, ThemeSetting, Toasts, WindowKeys, exampleCommands, isScale, readStored, useScale, useShortcuts, useTheme, useToasts, writeStored,
+  type Command, type Credit, type Example, type Scale, type HelpProvider, type MenuEntry, type PaneRect, type SearchItem, type Theme,
 } from "@paperboatlab/ui";
 import { EditorSettingsPane, EditorTabs, afterClose, orderTabs, tabMenu, useEditorSettings, type EditorPos } from "@paperboatlab/ui/editor";
 import { FileTree, fileIconFor, type FileActions, type FileEntry } from "@paperboatlab/ui/files";
@@ -37,7 +37,7 @@ const TYPES = ["jl", "mx"];
 /** The window as the Panels key sketches it: files, editor, figure, console, workspace. */
 const LAYOUT: Record<string, PaneRect> = { l: [4, 4, 10, 36], e: [16, 4, 16, 26], f: [34, 4, 12, 26], b: [16, 32, 30, 8], r: [48, 4, 12, 36] };
 type Ask = { title: string; label?: string; value?: string; danger?: boolean; ok: string; text?: string; run: (v: string) => void };
-type Doc = { path: string; text: string; readOnly: boolean; v: number };   // v: a new copy from disk (remounts the editor)
+type Doc = { path: string; text: string; v: number };   // v: a new copy from disk (remounts the editor)
 const isTheme = (v: unknown): v is Theme => v === "light" || v === "dark" || v === "system";
 const isList = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === "string");
 const isHidden = (v: unknown): v is Record<Side, boolean> => !!v && typeof v === "object" && PANELS.every((p) => typeof (v as any)[p.side] === "boolean");
@@ -98,7 +98,8 @@ export function App() {
   const readHubs = useCallback(() => api.hubs().then((l) => { setHubs(l); return l; }, () => [] as HubInfo[]), []);
   const [recent, setRecent] = useState<RecentEntry[]>([]);
   const readRecent = useCallback(() => api.recent().then((r) => setRecent(r.recent), () => {}), []);
-  const [tree, setTree] = useState<{ files: Entry[]; examples: Entry[] }>({ files: [], examples: [] });
+  const [tree, setTree] = useState<{ files: Entry[] }>({ files: [] });
+  const [examples, setExamples] = useState<Example[]>([]);   // Open example: in Ctrl K, read once (paperboat#72)
   const [tabs, setTabs] = useState<string[]>(() => readStored("julix.tabs", isList) ?? []);
   const [current, setCurrent] = useState<string | null>(() => readStored("julix.tabs", isList)?.[0] ?? null);
   const [pinned, setPinned] = useState<Set<string>>(() => new Set(readStored("julix.pinned", isList) ?? []));
@@ -172,7 +173,7 @@ export function App() {
   const reload = useCallback(() => api.tree().then(setTree, fail), [fail]);
   const reloadFigures = useCallback(() => api.figures().then((fs) => { setFigures(fs); setShown((s) => s ?? (fs[0] ? { run: fs[0].run, n: fs[0].n } : null)); }, () => {}), []);
   useEffect(() => {
-    readHubs(); readRecent();
+    readHubs(); readRecent(); api.examples().then(setExamples, () => {});
     api.workspace().then((v) => {
       setInfo(v); setSession(v.session);
       document.title = v.workspace ? `${v.workspace.name} · Julix` : "Julix";
@@ -256,7 +257,7 @@ export function App() {
   }, [show]);
   // only the shown tab can be unsaved (the rest were saved as they were left): before it closes, alone or with
   // its folder or hub, Unsaved asks: Save, Don't save, Cancel
-  const dirty = !!current && draft !== null && !doc?.readOnly;
+  const dirty = !!current && draft !== null;
   const guard = (what: string | undefined, then: () => void) => (dirty ? setClosing({ what, then }) : then());
   const closeTabs = (paths: string[]) => {
     const go = () => {
@@ -332,7 +333,7 @@ export function App() {
   };
   // save what is typed after a pause; the file is the record
   useEffect(() => {
-    if (draft === null || !current || doc?.readOnly || closing) return;   // not while Unsaved asks
+    if (draft === null || !current || closing) return;   // not while Unsaved asks
     const t = setTimeout(() => save(current, draft), 700);
     return () => clearTimeout(t);
   }, [draft, current, doc, save, closing]);
@@ -343,7 +344,7 @@ export function App() {
   const run = useCallback((kind: "file" | "cell" | "line", code?: string, line = 1, debug = false) => {
     if (kind === "file" && paused && !debug) return command("continue");   // F5 while a debug run waits goes on
     if (!current || typeOf(current) !== "jl") return;   // as the Run key: off, and its hover says why
-    if (draft !== null && !doc?.readOnly) save(current, draft);
+    if (draft !== null) save(current, draft);
     const dbg = debug ? { debug: true, breakpoints: bps[current] ?? [] } : {};
     api.run(kind, kind === "file" ? { path: current, code: text, ...dbg } : { path: current, code, line, ...dbg }).catch(fail);
     setHidden((h) => (h.b ? { ...h, b: false } : h));
@@ -387,7 +388,6 @@ export function App() {
       run: (name) => api.create(dir ? `${dir}/${name.endsWith(".jl") ? name : `${name}.jl`}` : name.endsWith(".jl") ? name : `${name}.jl`, NEW_SCRIPT).then((r) => { reload(); open(r.path); }, fail),
     });
   };
-  const copyIn = useCallback((p: string) => api.copy(p, base(p)).then((r) => { reload(); open(r.path); }, fail), [open, reload, fail]);
   const copy = useCallback((t: string, what: string) => navigator.clipboard.writeText(t).then(() => show({ title: `${what} copied`, detail: t.length > 80 ? `${t.slice(0, 80)}…` : t, state: "done" }), fail), [show, fail]);
 
   const newFolder = (dir: string) => setAsk({ title: "New folder", label: "Name", ok: "Create", run: (n) => api.mkdir(dir ? `${dir}/${n}` : n).then(reload, fail) });
@@ -427,16 +427,11 @@ export function App() {
       "-", { id: "trash", label: "Move to trash", icon: "trash", shortcut: "Del", run: () => trash(e.path) },
     ];
   };
-  const exampleMenu = (e?: FileEntry): MenuEntry[] => (!e || e.kind === "folder" ? [] : [
-    { id: "open", label: "Open", shortcut: "Enter", run: () => open(e.path) },
-    "-", { note: "Julix" }, { id: "run", label: "Run", icon: "play", shortcut: "F5", run: () => runPath(e.path) }, { id: "copyin", label: "Copy to my folder", icon: "copy", run: () => copyIn(e.path) },
-    "-", { id: "path", label: "Copy path", icon: "copy", run: () => { copy(e.path.replace(/^@examples\//, "examples/"), "Path"); } },
-  ]);
   // a tab's menu: its own group (the closes, Pin), then the file's menu as the tree shows it, without Open
   const strip = orderTabs(tabs, pinned);
   const tabItems = (p: string): MenuEntry[] => {
     const e: FileEntry = { path: p, name: base(p), kind: "file", depth: 0 };
-    const file = (p.startsWith("@examples/") ? exampleMenu(e) : menuFor(e)).filter((m) => typeof m === "string" || !("id" in m) || !["open", "side", "in"].includes(m.id));
+    const file = menuFor(e).filter((m) => typeof m === "string" || !("id" in m) || !["open", "side", "in"].includes(m.id));
     while (file[0] === "-") file.shift();
     return tabMenu(p, { tabs: strip, pinned, dirty: (t) => t === current && draft !== null }, {
       close: closeTabs, file,
@@ -444,11 +439,6 @@ export function App() {
     });
   };
   const runPath = (p: string) => { open(p); api.run("file", { path: p }).catch(fail); setHidden((h) => ({ ...h, b: false })); };
-  const exampleActions: FileActions = {
-    onOpen: (e) => e.kind === "file" && open(e.path),
-    onDuplicate: (e) => { if (e.kind === "file") copyIn(e.path); },
-    onCopyPath: (e) => { copy(e.path.replace(/^@examples\//, "examples/"), "Path"); },
-  };
 
   // the run and debug keys (the editor has its own: Ctrl Enter, Shift Enter); every chord with Ctrl is the registry's
   useEffect(() => {
@@ -468,17 +458,15 @@ export function App() {
   // the command registry: the menu bar, the command search and the shortcuts read it (REBRAND "Menu bar")
   const view = editorView;
   const noScript = { enabled: !!current && typeOf(current) === "jl", why: "open a .jl script first" };
-  const examples = files(tree.examples);
   const commands: Command[] = [
     ...fileMenu({
       noun: "script", workspace: ws, file: !!current, hubs: hubs.length > 0, recent: recentItems,
       onNew: () => newScript(), onOpenFile: openFile, onOpenFolder: openFolder, onConnect: connect, onSave: saveNow, onSaveAs: saveAs,
       onCloseFile: () => { if (current) close(current); }, onCloseWorkspace: closeWorkspace, onSettings: () => settings(),
     }),
-    { id: "edit.undo", label: "Undo", menu: "edit", group: "history", shortcut: "Ctrl Z", enabled: !!doc && !doc.readOnly, why: "no script open", run: () => { const v = view(); if (v) undo(v); } },
-    { id: "edit.redo", label: "Redo", menu: "edit", group: "history", shortcut: "Ctrl Shift Z", enabled: !!doc && !doc.readOnly, why: "no script open", run: () => { const v = view(); if (v) redo(v); } },
+    { id: "edit.undo", label: "Undo", menu: "edit", group: "history", shortcut: "Ctrl Z", enabled: !!doc, why: "no script open", run: () => { const v = view(); if (v) undo(v); } },
+    { id: "edit.redo", label: "Redo", menu: "edit", group: "history", shortcut: "Ctrl Shift Z", enabled: !!doc, why: "no script open", run: () => { const v = view(); if (v) redo(v); } },
     { id: "edit.find", label: "Find and replace…", menu: "edit", group: "find", shortcut: "Ctrl F", enabled: !!doc, why: "no script open", run: () => { const v = view(); if (v) openSearchPanel(v); } },
-    { id: "edit.copyin", label: "Copy this example to my folder", menu: "edit", group: "examples", icon: "copy", enabled: !!current?.startsWith("@examples/"), why: "open an example first", run: () => { if (current) copyIn(current); } },
     { id: "view.search", label: "Search…", menu: "view", group: "search", shortcut: "Ctrl K", chord: SEARCH_CHORD, quiet: true, run: () => setSearch((x) => !x) },
     ...PANELS.map((p): Command => ({ id: `view.${p.name.toLowerCase()}`, label: p.name, menu: "view", group: "panels", shortcut: p.keys, chord: CHORDS[p.side], checked: !hidden[p.side], run: () => toggle(p.side) })),
     ...(["light", "dark", "system"] as Theme[]).map((t): Command => ({ id: `view.theme.${t}`, label: t[0].toUpperCase() + t.slice(1), menu: "view", group: "theme", checked: theme === t, run: () => setTheme(t) })),
@@ -491,18 +479,17 @@ export function App() {
     { id: "kernel.runtimes", label: "Manage runtimes…", menu: "kernel", group: "packages", icon: "a-runtimes", run: () => { api.manageRuntimes().catch(fail); } },
     { id: "kernel.packages", label: "Julia packages…", menu: "kernel", group: "packages", icon: "package", enabled: false, why: PACKAGES, run: () => {} },
     { id: "help.docs", label: "Julia's docs", menu: "help", group: "docs", shortcut: "F1", icon: "question", run: () => setDialog("help") },
-    ...(examples.length ? [{ id: "help.examples", label: "Examples", menu: "help", group: "docs", icon: "book", quiet: true, run: () => {},
-      sub: examples.map((p): MenuEntry => ({ id: `ex:${p}`, label: base(p), run: () => open(p) })) } as Command] : []),
     // Ctrl / in the script is the editor's (comment the lines); everywhere else it opens Settings › Shortcuts
     { id: "help.shortcuts", label: "Keyboard shortcuts", menu: "help", group: "docs", shortcut: "Ctrl /", chord: { key: "/", ctrl: true }, icon: "keys",
       run: () => { if (!document.activeElement?.closest('.cm-content[contenteditable="true"]')) settings("shortcuts"); } },
     { id: "help.manual", label: "Julix on GitHub", menu: "help", group: "docs", icon: "link-external", run: () => { window.open("https://github.com/paperboatlab/julix#readme", "_blank", "noopener"); } },
     { id: "help.about", label: "About Julix", menu: "help", group: "about", icon: "info", run: () => setDialog("about") },
+    // Open example: <name>, only in Ctrl K: the CLI copies it for the user and opens it in a new window
+    ...exampleCommands(examples, (id) => { api.openExample(id).catch(fail); }),
   ];
   useShortcuts(commands);
   const searchItems: SearchItem[] = [
     ...files(tree.files).map((p): SearchItem => ({ id: `f:${p}`, label: base(p), detail: dirOf(p), group: "Files", scope: "Files", icon: typeOf(p) === "jl" ? "file-code" : "file", run: () => open(p) })),
-    ...examples.map((p): SearchItem => ({ id: `e:${p}`, label: base(p), detail: "Examples · read-only", group: "Files", scope: "Files", icon: "file-code", run: () => open(p) })),
     ...variables.map((v): SearchItem => ({ id: `v:${v.name}`, label: v.name, detail: `${v.type} · ${v.summary.slice(0, 40)}`, group: "Variables", scope: "Variables", icon: "a-variables", run: () => { setWtab("vars"); toggle("r", false); } })),
     ...figures.map((f): SearchItem => ({ id: `g:${f.run}:${f.n}`, label: `Figure ${f.n}`, detail: `${base(f.source)} · ${f.time ? new Date(f.time).toTimeString().slice(0, 5) : ""}`, group: "Figures", scope: "Figures", icon: "file-media", run: () => { setShown({ run: f.run, n: f.n }); toggle("f", false); } })),
     ...commands.filter((c) => !c.quiet).map((c): SearchItem => {
@@ -560,11 +547,7 @@ export function App() {
         <Panel name="Files" count={`${files(tree.files).length}`} side="left" hidden={hidden.l} onHidden={(h) => toggle("l", h)} icon="folder" width={FILES_W} className="filesp"
           tools={<><Key size="sm" kind="quiet" round icon="new-file" label="New script (Ctrl N)" onClick={() => newScript("")} /><Key size="sm" kind="quiet" round icon="new-folder" label="New folder" onClick={() => newFolder("")} /></>}>
           <FileTree entries={rows(tree.files)} active={current ?? undefined} actions={treeActions} menu={menuFor} ariaLabel="Files"
-            labels={{ newFile: "New script", empty: "No files yet: make a script (Ctrl N), or copy an example." }} />
-          {tree.examples.length > 0 && <>
-            <div className="exh">Examples<small>read-only</small></div>
-            <FileTree entries={rows(tree.examples)} active={current ?? undefined} actions={exampleActions} menu={exampleMenu} ariaLabel="Examples" />
-          </>}
+            labels={{ newFile: "New script", empty: "No files yet: make a script (Ctrl N), or open an example (Ctrl K)." }} />
           <div className="sfoot" title={ws.root}>{ws.kind === "hub" ? <><HubMark size={14} /><code>history kept by Malachite</code></> : <><FolderGlyph /><code>{tilde(ws.root, home)}</code></>}</div>
         </Panel>
 
@@ -573,24 +556,21 @@ export function App() {
             onSize={setFigW} onHidden={() => toggle("f", true)} label="Figure width">
             <section className="panel ed" aria-label="Script">
               <EditorTabs label="Open scripts" current={current} onShow={open} onClose={close} menu={tabItems}
-                tabs={strip.map((p) => ({ id: p, icon: busy?.path === p ? <Spinner size={12} label="Running" /> : undefined, dirty: p === current && draft !== null && !doc?.readOnly, pinned: pinned.has(p) }))}
+                tabs={strip.map((p) => ({ id: p, icon: busy?.path === p ? <Spinner size={12} label="Running" /> : undefined, dirty: p === current && draft !== null, pinned: pinned.has(p) }))}
                 onUnpin={(p) => setPinned((s) => new Set([...s].filter((x) => x !== p)))}>
                 {isJl && <Key size="sm" kind="quiet" icon="play" onClick={runCellAtCursor} title="Run the cell at the cursor (Ctrl Enter)">Run cell</Key>}
               </EditorTabs>
               {bpAt && <div className="file-menu own gmenu" style={{ left: Math.min(bpAt.x, innerWidth - 290), top: Math.min(bpAt.y, innerHeight - 200) }}>
                 <Menu label={`${base(bpAt.path)}:${bpAt.line}: breakpoint`} items={bpItems(bpAt)} onClose={() => setBpAt(null)} /></div>}
-              {doc?.readOnly && (
-                <div className="ro">An example: read-only. Run it as it is, or <button type="button" className="lnk" onClick={() => copyIn(doc.path)}>copy it to your folder</button> to change it.</div>
-              )}
               <div className="body">
                 {debugging && <DebugDock paused={!!paused} where={paused && `${base(paused.source)}:${paused.line}${paused.frames[0] ? ` · in ${paused.frames[0].name}` : ""}`}
                   onContinue={() => command("continue")} onPause={() => command("pause")} onStepOver={() => command("over")} onStepInto={() => command("into")}
                   onStepOut={() => command("out")} onStop={() => command("stop")} />}
-                {!current && <div className="empty-state"><div className="welcome"><AppMark app="julix" size={72} idle label="" /><p>Open a script, or make one. The examples show how Julix runs code.</p>
-                  <span><Key kind="primary" icon="new-file" onClick={() => newScript("")}>New script</Key>{tree.examples[0] && <Key onClick={() => open(files(tree.examples)[0])}>Open an example</Key>}</span></div></div>}
+                {!current && <div className="empty-state"><div className="welcome"><AppMark app="julix" size={72} idle label="" /><p>Open a script, or make one. The examples open from Ctrl K: Open example.</p>
+                  <span><Key kind="primary" icon="new-file" onClick={() => newScript("")}>New script</Key></span></div></div>}
                 {doc && doc.path === current && (IMAGE.has(typeOf(doc.path))
                   ? <p className="empty-state">An image: Julix edits scripts and text.</p>
-                  : <Code key={`${doc.path}:${doc.readOnly}:${doc.v}`} path={doc.path} text={text} readOnly={doc.readOnly} onChange={setDraft}
+                  : <Code key={`${doc.path}:${doc.v}`} path={doc.path} text={text} onChange={setDraft}
                       onPos={(p: EditorPos) => setCursor({ line: p.line, col: p.col })} busy={busy?.path === doc.path ? busy : undefined} settings={editor}
                       breakpoints={bps[doc.path]} onBreakpoint={(l) => toggleBreakpoint(doc.path, l)}
                       onBreakpointMenu={(line, x, y) => setBpAt({ path: doc.path, line, x, y })} stopAt={paused?.source === doc.path ? paused.line : undefined}

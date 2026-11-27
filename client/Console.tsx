@@ -8,7 +8,7 @@ import { api, session, type Run } from "./api.ts";
 import { ours } from "./traceback.ts";
 
 const isList = (v: unknown): v is string[] => Array.isArray(v) && v.every((x) => typeof x === "string");
-const base = (p: string) => { const s = p.replace(/^@examples\//, ""); return s.slice(s.lastIndexOf("/") + 1); };
+const base = (p: string) => p.slice(p.lastIndexOf("/") + 1);
 
 
 function What({ r }: { r: Run }) {

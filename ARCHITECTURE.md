@@ -14,7 +14,7 @@ protocols of the platform: `paperboat-control/0` to `paperboatd` for the session
 flowchart LR
   P[page: React + @paperboatlab/ui] -- "HTTP JSON + SSE (127.0.0.1)" --> S
   subgraph S[julix server]
-    F[Folder: files, examples, trash] --- X[Sessions: one Julia lease, runs, figures, variables]
+    F[Folder: files, trash] --- X[Sessions: one Julia lease, runs, figures, variables]
     W2[workspace: folder, hub or none; recent, settings] --> F
     X --> C[Control client]
     X --> R[Runtime client]
@@ -28,9 +28,8 @@ flowchart LR
 
 ## 2. Codemap
 
-- `server/folder.ts`: `Folder`: every path through `resolve` (inside the folder, symlinks too; the
-  examples under `@examples/`, read-only), the tree, read/write (atomic), create (a free name), rename,
-  copy in, trash (`.julix/trash`).
+- `server/folder.ts`: `Folder`: every path through `resolve` (inside the folder, symlinks too), the tree,
+  read/write (atomic), create (a free name), rename, duplicate, trash (`.julix/trash`). The examples are not in it.
 - `server/session.ts`: `Sessions`: one Julia session lease for the folder, acquired on the first run.
   A run is a file, a cell, a line or a console expression; runs queue, run in their file's folder, keep
   their line numbers (`atLine`), stream output, and turn every SVG or PNG display into a figure in
@@ -60,6 +59,11 @@ flowchart LR
   shell), read when the page asks; a CLI that is missing or fails means no hubs, and the page says nothing
   about them (no Malachite, no hub). `holds` counts a hub's scripts for Connect to a hub. `.malachite/` is
   a dot folder: never in the tree. New hub is `paperboat hub new`, Open in Malachite `paperboat app open malachite`.
+  The examples (paperboat#72) come from the same CLI: `GET /api/examples` is `paperboat example list --app julix`
+  (a missing or failing CLI: none), read once as the page loads, and each is a Ctrl K command, **Open example:
+  <name>** (the kit's `exampleCommands`, in no menu); `POST /api/examples/open` runs `paperboat example open <id>`,
+  which copies the example for the user once (`$PAPERBOAT_HOME/examples/<id>`) and opens the copy in a new window;
+  its error goes to the page as a toast. With `--json` the CLI says why it failed as `{error}`, which `paperboat()` reports.
 - `server/store.ts`: the store every app shares under `$PAPERBOAT_HOME` (resolved as paperboat's
   `paths.cpp`): `recent.json` (folders, hubs and files opened, newest first, one per kind and path, 40 at
   most) and `settings.json` (the theme), each written whole to a temp file and renamed.
@@ -103,8 +107,7 @@ flowchart LR
    lives only there or in the server's memory.
 2. **Julix runs no code.** Code runs in the runtime leased from `paperboatd`; the server only speaks the
    protocols (paperboat ARCHITECTURE invariant 9).
-3. **Paths stay in the workspace.** Every path from the page goes through `Folder.resolve`; the examples
-   are read-only. The one exception is a whole path the user picked (Open folder…, Open file…, Save as…):
+3. **Paths stay in the workspace.** Every path from the page goes through `Folder.resolve`. The one exception is a whole path the user picked (Open folder…, Open file…, Save as…):
    it moves the workspace to it, never reads or writes beside it.
 4. **An error points at the user's line.** Code run from line n is sent with n − 1 blank lines before
    it and labelled with its file, so Julia's traceback names the file and line in the editor.

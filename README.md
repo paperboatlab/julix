@@ -29,7 +29,6 @@ server/     the app server (Node 22, TypeScript, no dependencies): the folder, t
 docs/       the manual (reStructuredText)
 client/     the page (React, @paperboatlab/ui: editor, files, plots), built into dist/
 bin/julix   the command
-examples/   read-only examples, shown in every folder
 test/       unit tests; e2e.test.ts runs real Julia when paperboatd is there
 ```
 

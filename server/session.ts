@@ -150,11 +150,10 @@ export class Sessions {
       let state: "done" | "failed";
       try {
         const s = await this.open();
-        const dir = source === "console" || Folder.readOnly(source) ? "" : path.posix.dirname(source) === "." ? "" : path.posix.dirname(source);
+        const dir = source === "console" ? "" : path.posix.dirname(source) === "." ? "" : path.posix.dirname(source);
         if (s.cwd !== dir) { await s.rt.request("eval", { code: chdir(dir), cell: "julix: the script's folder" }); s.cwd = dir; }
         run.runtime = { name: s.rt.hello!.runtime.name, version: s.rt.hello!.runtime.version, backend: s.lease.backend };
-        const label = source === "console" ? "console" : source.replace(/^@examples\//, "examples/");
-        const args = { code: atLine(code, line), cell: label, ...(debug ? { debug: true, breakpoints: debug.breakpoints } : {}) };
+        const args = { code: atLine(code, line), cell: source, ...(debug ? { debug: true, breakpoints: debug.breakpoints } : {}) };
         const result = await s.rt.request<{ data: Record<string, string> | null; stopped?: boolean }>("eval", args, (note) => {
           if (note.type === "debug") {
             this.paused = note.event === "stopped" ? { run: run.id, source, reason: String(note.reason), line: Number(note.line),
@@ -192,8 +191,7 @@ export class Sessions {
   async debug(command: string, args: Record<string, unknown> = {}) {
     if (!this.session) return { running: false };
     const s = await this.session;
-    const label = typeof args.file === "string" ? args.file.replace(/^@examples\//, "examples/") : undefined;
-    return s.rt.request("debug", { command, ...args, ...(label ? { file: label } : {}) });
+    return s.rt.request("debug", { command, ...args });
   }
 
   /** The session's variables, asked after every run (and sent to the page). */

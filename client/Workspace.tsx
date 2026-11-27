@@ -7,7 +7,7 @@ import { api, type Figure, type Variable } from "./api.ts";
 import { FIGURE } from "./figure/Figure.tsx";
 
 export type FigureRef = { run: string; n: number };
-const base = (p: string) => { const s = p.replace(/^@examples\//, ""); return s.slice(s.lastIndexOf("/") + 1); };
+const base = (p: string) => p.slice(p.lastIndexOf("/") + 1);
 const time = (iso: string) => (iso ? new Date(iso).toTimeString().slice(0, 5) : "");
 
 /** What a type is, briefly: `Matrix{Float64}` stays, a long parametric type keeps its head. */

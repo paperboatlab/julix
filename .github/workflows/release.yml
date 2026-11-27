@@ -25,7 +25,7 @@ jobs:
           [ "${v%%-*}" = "$(node -p 'require("./package.json").version')" ] || { echo "tag $GITHUB_REF_NAME isn't package.json's version"; exit 1; }
           top=julix-$v
           mkdir $top
-          cp -r bin server dist package.json LICENSE README.md examples $top/
+          cp -r bin server dist package.json LICENSE README.md $top/
           cp node_modules/@paperboatlab/ui/src/marks/julix/icon.png $top/icon.png  # the desktop entry's icon (paperboat app install)
           tar -czf $top.tar.gz $top
           echo "TARBALL=$top.tar.gz" >> $GITHUB_ENV
