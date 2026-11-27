@@ -488,6 +488,7 @@ export function App() {
       ...(debugging ? { enabled: false, why: "a debug run is going" } : {}), run: () => run("file", undefined, 1, true) },
     { id: "kernel.interrupt", label: "Interrupt", menu: "kernel", group: "session", icon: "debug-pause", enabled: running, why: "nothing is running", run: () => { api.interrupt().catch(fail); } },
     { id: "kernel.restart", label: "Restart the Julia session", menu: "kernel", group: "session", icon: "debug-restart", enabled: !!ws, why: "no folder open", run: () => { api.restart().catch(fail); } },
+    { id: "kernel.runtimes", label: "Manage runtimes…", menu: "kernel", group: "packages", icon: "a-runtimes", run: () => { api.manageRuntimes().catch(fail); } },
     { id: "kernel.packages", label: "Julia packages…", menu: "kernel", group: "packages", icon: "package", enabled: false, why: PACKAGES, run: () => {} },
     { id: "help.docs", label: "Julia's docs", menu: "help", group: "docs", shortcut: "F1", icon: "question", run: () => setDialog("help") },
     ...(examples.length ? [{ id: "help.examples", label: "Examples", menu: "help", group: "docs", icon: "book", quiet: true, run: () => {},
