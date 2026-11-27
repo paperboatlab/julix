@@ -1,5 +1,5 @@
-# 04-julixplot.jl: a figure you can pan, zoom and orbit. Needs JulixPlot in this folder:
-# Ctrl K › Julia packages… › Add JulixPlot (once; Julia downloads it for that step only).
+# 04-julixplot.jl: a figure you can pan, zoom and orbit. Needs JulixPlot in this folder: Julix adds it
+# before the folder's first session (once; Julia downloads it for that step only).
 # 2D axes pan (drag), zoom (wheel, or a box), read values (hover), compare two cursors (A/B);
 # the 3D axis orbits (drag), zooms (wheel) and snaps to a side from its view cube.
 

@@ -15,9 +15,9 @@ test("JulixPlot is added when the folder's project doesn't list it", () => {
   fs.rmSync(d, { recursive: true });
 });
 
-test("an add of JulixPlot comes from its repository, with the network", () => {
-  const r = recipe("add", "JulixPlot");
-  assert.match(r.code, /PackageSpec\(url="https:\/\/github.com\/paperboatlab\/JulixPlot.jl"/);
-  assert.equal(r.network, true);
-  assert.deepEqual(parse("PKG JulixPlot 0.3.0\nJULIX-DONE\n"), { packages: [{ name: "JulixPlot", version: "0.3.0" }], done: true });
+test("JulixPlot comes from its repository, or a local checkout; the log says what's there", () => {
+  assert.match(recipe(), /PackageSpec\(url="https:\/\/github.com\/paperboatlab\/JulixPlot.jl"/);
+  assert.match(recipe(true), /Pkg.develop\(path=joinpath\(ENV\["PAPERBOAT_PROJECT"\], ".julix", "JulixPlot.jl"\)\)/);
+  assert.deepEqual(parse("noise\nPKG Plots 1.40.0\nPKG JulixPlot 0.2.0\nJULIX-DONE\n"), { packages: [{ name: "JulixPlot", version: "0.2.0" }, { name: "Plots", version: "1.40.0" }], done: true });
+  assert.equal(parse("ERROR: …").done, false);
 });

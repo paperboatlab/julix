@@ -1,13 +1,16 @@
 // The runtimes key (REBRAND "Runtimes key": one key, never a row of pills): the kit's RuntimesKey with the
 // folder's Julia session as its row. Julix asks paperboatd once the peek has opened, then on every change.
 // (The Panels key beside it is @paperboatlab/ui's PanelsKey.)
-import { Key, RuntimesKey, type Runtime } from "@paperboatlab/ui";
+import { RuntimesKey, type Runtime } from "@paperboatlab/ui";
 import { useEffect, useState } from "react";
 import { api, type Peek } from "./api.ts";
 
+/** Where the folder's Julia packages are managed: one package manager for Julia, the platform's (paperboat#50). */
+export const PACKAGES = "Packages are managed in Paperboat Launcher › Runtimes › julia";
+
 const base = (p: string) => p.slice(p.lastIndexOf("/") + 1);
 
-export function JuliaRuntimes({ running, starting, version, onPackages }: { running: boolean; starting: boolean; version: number; onPackages: () => void }) {
+export function JuliaRuntimes({ running, starting, version }: { running: boolean; starting: boolean; version: number }) {
   const [peek, setPeek] = useState<Peek | null>(null);
   const [error, setError] = useState("");
   const [asked, setAsked] = useState(false);
@@ -24,6 +27,6 @@ export function JuliaRuntimes({ running, starting, version, onPackages }: { runn
     <RuntimesKey scope="this folder" runtimes={rows} count={peek?.sessions.length} live={running || starting}
       error={error || (peek && !peek.julia && !s ? "paperboatd has no Julia runtime with a session mode." : undefined)}
       onOpenChange={(o) => { if (!o) return; if (asked) ask(); else setAsked(true); }}
-      footer={(close) => <><span>This folder is the Julia project.</span><Key size="sm" kind="quiet" icon="package" onClick={() => { close(); onPackages(); }}>Packages…</Key></>} />
+      footer={() => <span>This folder is the Julia project. {PACKAGES}.</span>} />
   );
 }

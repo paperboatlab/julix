@@ -63,7 +63,9 @@ once, there is no Save.
 - **General**: the theme, Light, Dark or System (it follows the computer). It applies to every Paperboat
   app; **View › Theme** lists the same three.
 - **Julix**: the Julia it runs on (Paperboat's Julia runtime; a session starts for each folder) and the
-  project, which is the folder itself, with **Packages…**.
+  project, which is the folder itself. Julix adds JulixPlot to it before the folder's first session; every
+  other package is added and removed in Paperboat Launcher › **Runtimes** › **julia** › **Packages**, the
+  one package manager for Julia (choose the folder there as the project).
 - **Editor**: the code's colours, font, size and line height; tab size, wrapping, autocomplete, closing
   brackets and lint (Julia's parser).
 - **Hub**, while Julix works in a hub: its name and folder, **Switch hub…** and **Close hub**. The hub's
