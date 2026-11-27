@@ -87,7 +87,8 @@ flowchart LR
   the REPL line), `traceback.ts`, `Workspace.tsx` (Variables on the kit's `VariableList`, the open row plotted, Figures),
   `Keys.tsx` (the folder's Julia session as the kit's `RuntimesKey`), `api.ts` (with the session the
   editor lints and completes through).
-- `client/figure/`: `Figure.tsx` (a figure file: a JulixPlot scene to FigureView, else its image),
+- `client/figure/`: `Figure.tsx` (a figure file: a JulixPlot scene to FigureView, else its image; a figure that
+  throws while drawn, as a 3D axis with no WebGL context does, fails in the pane with a message, the page stays),
   `FigureView.tsx` and `scene.ts` (from legacy MX: the figure's grid; 2D axes on the kit's `Plot2D`,
   colour bars, legends, TeX labels; 3D axes on the stage, their ink and grid the paper's `--paper-ink`/`--paper-grid`).
 - 3D figures draw on the kit's stage (`@paperboatlab/ui/stage`: three.js, orbit, view cube, axes),
