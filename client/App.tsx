@@ -155,6 +155,9 @@ export function App() {
   const currentRef = useRef(current);
   const copies = useRef(0);
   const starting = useRef<number | null>(null);   // the "Starting Julia" toast, till the session is up or gave up
+  // a session that didn't start: why, and Retry (one try each time it is pressed, never on a loop)
+  const notStarted = useCallback((error: string, id: number | null) => show({ ...(id !== null ? { id } : {}), title: "Julia didn't start", detail: error, state: "failed",
+    actions: [{ label: "Retry", primary: true, run: () => { api.startSession().catch(fail); } }] }), [show, fail]);
   const unsaved = useRef(new Map<string, number>());   // a file that failed to save: its toast, till a save goes through
   currentRef.current = current;
   const switching = useRef(false);   // this page moves the server to another folder: it reloads itself
@@ -189,6 +192,9 @@ export function App() {
     readHubs(); readRecent(); api.examples().then(setExamples, () => {});
     api.workspace().then((v) => {
       setInfo(v); setSession(v.session);
+      // the server starts the folder's session as it opens (#43): this page may come while it starts, or after it failed
+      if (v.session === "starting") starting.current ??= show({ title: "Starting Julia", detail: "runs wait for it", state: "working" });
+      else if (v.error) notStarted(v.error, null);
       document.title = v.workspace ? `${v.workspace.name} · Julix` : "Julix";
       if (!v.workspace) return;
       // the tabs this browser kept belong to the workspace they were opened in
@@ -199,7 +205,7 @@ export function App() {
       api.runs().then((rs) => { setRuns(rs); setResults(rs.reduce(applyRun, {})); }, () => {});
       api.paused().then((r) => stopped(r.paused), () => {});
     }, fail);
-  }, [reload, reloadFigures, readHubs, readRecent, fail, stopped]);
+  }, [reload, reloadFigures, readHubs, readRecent, fail, stopped, notStarted, show]);
 
   const load = useCallback((p: string | null) => {
     if (!p) { setDoc(null); return; }
@@ -229,19 +235,18 @@ export function App() {
     else if (e.type === "folder" && !switching.current) { leaveExample(); location.reload(); }   // another page moved the server to another workspace
     else if (e.type === "session") {
       setSession(e.state); if (!e.detail) setPeekVersion((v) => v + 1);
-      // the session starts in the background: one toast, working to its end
-      // its packages first, when the folder's deps volume lacks them: the detail follows Pkg's latest line
+      // the session starts in the background as the folder opens (#43): one toast, working to its end; its packages
+      // first, when the folder's deps volume lacks them: the detail follows Pkg's latest line
       if (e.state === "starting") {
         const detail = (e.detail as string | undefined) ?? "runs wait for it";
         if (starting.current === null) starting.current = show({ title: "Starting Julia", detail, state: "working" });
         else if (e.detail) show({ id: starting.current, title: "Starting Julia", detail, state: "working" });
       }
-      else if (starting.current !== null) {
-        show({ id: starting.current, ...(e.state === "running" ? { title: "Julia is ready", state: "done" } : { title: "Julia didn't start", detail: "the Console has the error", state: "failed" }) });
-        starting.current = null;
-      }
+      else if (e.state === "running" && starting.current !== null) { show({ id: starting.current, title: "Julia is ready", state: "done" }); starting.current = null; }
+      else if (e.state === "stopped" && e.error) { notStarted(e.error, starting.current); starting.current = null; }
+      else if (starting.current !== null) { show({ id: starting.current, title: "Julia stopped", state: "done" }); starting.current = null; }
     }
-  }), [reload, reloadFigures, load, show]);
+  }), [reload, reloadFigures, load, show, notStarted]);
 
   const running = runs.some((r) => r.state === "running" || r.state === "queued");
   const now = runs.find((r) => r.state === "running");   // the run the session is on; queued ones wait behind it
@@ -632,7 +637,7 @@ export function App() {
             </Panel>
           </Split>
 
-          <Console runs={runs} running={running} hidden={hidden.b} onHidden={(h) => toggle("b", h)} onRun={runConsole}
+          <Console runs={runs} running={running} state={session} hidden={hidden.b} onHidden={(h) => toggle("b", h)} onRun={runConsole}
             onFigure={(run, n) => { setShown({ run, n }); toggle("f", false); }} />
         </div>
 
