@@ -176,6 +176,10 @@ export function serve(dir: string | null, port = DEFAULT_PORT, control = new Con
           await paperboat(["app", "open", "malachite", h.path], 60_000).catch((e) => { throw new FolderError(e.message, 502); });
           return send(res, 200, {});
         }
+        case "POST /api/launcher": {   // Manage runtimes…: the Launcher on Runtimes › julia (paperboat#69)
+          await paperboat(["launcher", "--page", "runtimes", "--runtime", "julia"]).catch((e) => { throw new FolderError(e.message, 502); });
+          return send(res, 200, {});
+        }
         case "GET /api/paperboat": return send(res, 200, { version: await paperboatVersion() });
         case "GET /api/runtimes": {   // the runtimes key: this workspace's session, or only whether Julia is there
           if (sessions) return send(res, 200, await sessions.peek());

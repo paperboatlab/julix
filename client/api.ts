@@ -60,6 +60,8 @@ export const api = {
   hubs: () => call<HubInfo[]>("GET", "/api/hubs"),
   hubNew: (name: string) => call<Workspace>("POST", "/api/hubs/new", { name }),
   hubInMalachite: (id: string) => call("POST", "/api/hubs/malachite", { id }),
+  /** Manage runtimes…: the Paperboat Launcher on Runtimes › julia. */
+  manageRuntimes: () => call("POST", "/api/launcher", {}),
   tree: () => call<{ files: Entry[]; examples: Entry[] }>("GET", "/api/tree"),
   file: (p: string) => call<{ path: string; text: string; readOnly: boolean }>("GET", `/api/file?path=${q(p)}`),
   save: (p: string, text: string) => call("PUT", `/api/file?path=${q(p)}`, { text }),

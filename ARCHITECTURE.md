@@ -54,7 +54,8 @@ flowchart LR
   (the CLI's recipe): an exec lease with the network for that step only; `JULIXPLOT=<checkout>` develops a local
   JulixPlot. Julix has no package manager of its own: Paperboat Launcher › Runtimes › julia › Packages is the one
   for Julia (`paperboat package add|remove julia …`, paperboat#50); the Runtimes key, Settings › Julix and the
-  disabled Kernel › Julia packages… say so.
+  disabled Kernel › Julia packages… say so, and Kernel › Manage runtimes… goes there (`POST /api/launcher`:
+  `paperboat launcher --page runtimes --runtime julia`, paperboat#69).
 - `server/hubs.ts`: the hubs (paperboat#16), from `paperboat hub list --json` (`$PAPERBOAT_BIN` or on PATH, no
   shell), read when the page asks; a CLI that is missing or fails means no hubs, and the page says nothing
   about them (no Malachite, no hub). `holds` counts a hub's scripts for Connect to a hub. `.malachite/` is
