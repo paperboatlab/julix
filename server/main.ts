@@ -10,7 +10,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Control, ControlError, paperboatVersion } from "./control.ts";
 import { Folder, FolderError } from "./folder.ts";
-import { holds, hubs, paperboat } from "./hubs.ts";
+import { examples, holds, hubs, openExample, paperboat } from "./hubs.ts";
 import { forget, isScale, isTheme, recent, remember, saveSettings, settings } from "./store.ts";
 import { PackageError } from "./packages.ts";
 import { Sessions, type Kind } from "./session.ts";
@@ -148,7 +148,7 @@ export function serve(dir: string | null, port = DEFAULT_PORT, control = new Con
         case "GET /api/recent": return send(res, 200, { version: 1, recent: recent() });
         case "POST /api/recent": {   // a file of the workspace opened in the editor
           if (!folder) throw new FolderError("no folder open", 409);
-          if (!Folder.readOnly(str("path"))) remember({ kind: "file", path: folder.resolve(str("path")), hub: ws?.hub });
+          remember({ kind: "file", path: folder.resolve(str("path")), hub: ws?.hub });
           return send(res, 200, {});
         }
         case "POST /api/recent/clear": { forget(); return send(res, 200, {}); }
@@ -180,6 +180,8 @@ export function serve(dir: string | null, port = DEFAULT_PORT, control = new Con
           await paperboat(["launcher", "--page", "runtimes", "--runtime", "julia"]).catch((e) => { throw new FolderError(e.message, 502); });
           return send(res, 200, {});
         }
+        case "GET /api/examples": return send(res, 200, await examples());   // Open example: in Ctrl K (paperboat#72)
+        case "POST /api/examples/open": return send(res, 200, await openExample(str("id")).catch((e) => { throw new FolderError(e.message, 502); }));
         case "GET /api/paperboat": return send(res, 200, { version: await paperboatVersion() });
         case "GET /api/runtimes": {   // the runtimes key: this workspace's session, or only whether Julia is there
           if (sessions) return send(res, 200, await sessions.peek());
@@ -189,8 +191,8 @@ export function serve(dir: string | null, port = DEFAULT_PORT, control = new Con
       }
       if (!folder || !sessions) throw new FolderError("no folder open: open one first", 409);
       switch (`${req.method} ${url.pathname}`) {
-        case "GET /api/tree": return send(res, 200, { files: folder.tree(), examples: folder.exampleTree() });
-        case "GET /api/file": return send(res, 200, { path: q("path"), text: folder.read(q("path")), readOnly: Folder.readOnly(q("path")) });
+        case "GET /api/tree": return send(res, 200, { files: folder.tree() });
+        case "GET /api/file": return send(res, 200, { path: q("path"), text: folder.read(q("path")) });
         case "PUT /api/file": { folder.write(q("path"), str("text")); return send(res, 200, {}); }
         case "POST /api/new": return send(res, 200, { path: folder.create(str("path"), typeof body.text === "string" ? body.text : "") });
         case "POST /api/mkdir": { folder.mkdir(str("path")); return send(res, 200, {}); }

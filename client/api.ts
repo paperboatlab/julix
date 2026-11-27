@@ -1,4 +1,5 @@
 // The app server's API (server/main.ts), typed for the page.
+import type { Example } from "@paperboatlab/ui";
 import type { Session } from "@paperboatlab/ui/editor";
 export type Entry = { path: string; name: string; kind: "dir" | "file"; size?: number; mtime?: number; children?: Entry[] };
 export type Kind = "file" | "cell" | "line" | "console";
@@ -62,8 +63,12 @@ export const api = {
   hubInMalachite: (id: string) => call("POST", "/api/hubs/malachite", { id }),
   /** Manage runtimes…: the Paperboat Launcher on Runtimes › julia. */
   manageRuntimes: () => call("POST", "/api/launcher", {}),
-  tree: () => call<{ files: Entry[]; examples: Entry[] }>("GET", "/api/tree"),
-  file: (p: string) => call<{ path: string; text: string; readOnly: boolean }>("GET", `/api/file?path=${q(p)}`),
+  /** The examples for Ctrl K (`paperboat example list`); [] without Paperboat. */
+  examples: () => call<Example[]>("GET", "/api/examples"),
+  /** Open example: the CLI copies it for the user and opens the copy in a new window. */
+  openExample: (id: string) => call("POST", "/api/examples/open", { id }),
+  tree: () => call<{ files: Entry[] }>("GET", "/api/tree"),
+  file: (p: string) => call<{ path: string; text: string }>("GET", `/api/file?path=${q(p)}`),
   save: (p: string, text: string) => call("PUT", `/api/file?path=${q(p)}`, { text }),
   create: (p: string, text = "") => call<{ path: string }>("POST", "/api/new", { path: p, text }),
   mkdir: (p: string) => call("POST", "/api/mkdir", { path: p }),

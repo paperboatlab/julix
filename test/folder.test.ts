@@ -32,15 +32,9 @@ test("write, create a free name, rename, trash", () => {
   assert.deepEqual(f.tree().map((e) => e.path), ["sub"]);   // a hub's own files too
 });
 
-test("the examples read, copy in, and refuse writes", () => {
-  const ex = tmp();
-  fs.writeFileSync(path.join(ex, "01.jl"), "a = 1\n");
-  const f = new Folder(tmp(), ex);
-  assert.deepEqual(f.exampleTree().map((e) => e.path), ["@examples/01.jl"]);
-  assert.equal(f.read("@examples/01.jl"), "a = 1\n");
-  for (const write of [() => f.write("@examples/01.jl", ""), () => f.trash("@examples/01.jl"), () => f.mkdir("@examples"), () => f.create("@examples/x.jl")])
-    assert.throws(write, (e: FolderError) => e.status === 409);
-  assert.throws(() => f.read("@examples/../../etc/passwd"), FolderError);
-  assert.equal(f.copyIn("@examples/01.jl", "01.jl"), "01.jl");
-  assert.equal(f.read("01.jl"), "a = 1\n");
+test("Duplicate copies a file to a free name", () => {
+  const f = new Folder(tmp());
+  f.write("01.jl", "a = 1\n");
+  assert.equal(f.copyIn("01.jl", "01.jl"), "01-2.jl");
+  assert.equal(f.read("01-2.jl"), "a = 1\n");
 });

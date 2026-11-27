@@ -6,7 +6,7 @@ The window: the file tree, the editor, the console, the variables and the figure
 Files
 -----
 
-.. note:: Not written yet: the tree, new and rename, the trash, the examples.
+.. note:: Not written yet: the tree, new and rename, the trash.
 
 Editor
 ------

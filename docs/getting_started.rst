@@ -23,9 +23,17 @@ Your first script
 The folder
 ----------
 
-Julix opens a folder of ``.jl`` scripts, or a hub; the read-only examples are shown in every one. Without
+Julix opens a folder of ``.jl`` scripts, or a hub. Without
 a folder it opens on the Start page; **File › Open folder…** (:kbd:`Ctrl Shift O`) picks one
 and switches at any time, without a restart. ``/?open=<path>`` opens a file: a path in the folder, or a
 whole path, which brings its folder along.
 
 .. note:: Not written yet: what the session can see outside the folder.
+
+The examples
+------------
+
+The examples open from the command search: press :kbd:`Ctrl K`, type ``example``, and pick
+**Open example: <name>**. Julix asks Paperboat for them (``paperboat example list --app julix``); opening one
+copies it to your own folder once (``$PAPERBOAT_HOME/examples/<id>``) and opens that copy in a new window, so
+you can change it. Without Paperboat there are none.

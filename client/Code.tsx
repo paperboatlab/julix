@@ -204,8 +204,8 @@ function debugging(bps: Breakpoint[], stop: number | undefined, toggle: (line: n
 export type Runner = { cell: (code: string, line: number) => void; line: (code: string, line: number) => void; file: () => void; save: () => void };
 
 /** One file per mount: the caller remounts (`key`) for another file or a copy changed on disk. */
-export function Code({ path, text, readOnly, onChange, onPos, run, busy, results, variables, onFigure, breakpoints, onBreakpoint, onBreakpointMenu, stopAt, session, settings, appTheme }: {
-  path: string; text: string; readOnly: boolean; onChange: (t: string) => void; onPos: (p: EditorPos) => void; run: Runner;
+export function Code({ path, text, onChange, onPos, run, busy, results, variables, onFigure, breakpoints, onBreakpoint, onBreakpointMenu, stopAt, session, settings, appTheme }: {
+  path: string; text: string; onChange: (t: string) => void; onPos: (p: EditorPos) => void; run: Runner;
   /** The lines a run of this file is running now. */
   busy?: { from: number; to: number };
   /** What this file's lines made when they last ran, and the session's variables to read them from. */
@@ -245,6 +245,6 @@ export function Code({ path, text, readOnly, onChange, onPos, run, busy, results
   [language, busy?.from, busy?.to, results, variables, breakpoints, stopAt]);
   return (
     <Editor value={text} onChange={onChange} onPos={onPos} language={language} session={language.runtime === "julia" ? session : undefined}
-      settings={settings} appTheme={appTheme} ariaLabel={path} keys={keys} extra={extra} readOnly={readOnly} />
+      settings={settings} appTheme={appTheme} ariaLabel={path} keys={keys} extra={extra} />
   );
 }
