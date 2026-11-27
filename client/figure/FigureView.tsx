@@ -360,6 +360,10 @@ function Axis3Cell({
   );
 }
 
+/** The default for a figure no one follows: one function, so the effect that resets the views runs once a figure,
+ *  not after every draw (a new `() => {}` each render reset the state each time: a figure redrew all the time). */
+const IGNORE_VIEW = () => {};
+
 /** A JulixPlot figure, drawn: 2D axes on the kit's Plot2D, 3D axes on the stage, with its colour bars,
  *  legends and labels in the figure's own grid. `figureKey` names it; a new key starts from its scripted view. */
 export function FigureView({
@@ -367,7 +371,7 @@ export function FigureView({
   scene,
   label,
   resetSeq = 0,
-  onViewStateChange = () => {},
+  onViewStateChange = IGNORE_VIEW,
 }: {
   figureKey: string;
   scene: FigureScene | null;
