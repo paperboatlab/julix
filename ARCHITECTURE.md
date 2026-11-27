@@ -70,7 +70,9 @@ flowchart LR
   The CLI's error goes to the page as a toast. With `--json` the CLI says why it failed as `{error}`, which `paperboat()` reports.
 - `server/store.ts`: the store every app shares under `$PAPERBOAT_HOME` (resolved as paperboat's
   `paths.cpp`): `recent.json` (folders, hubs and files opened, newest first, one per kind and path, 40 at
-  most) and `settings.json` (the theme), each written whole to a temp file and renamed.
+  most) and `settings.json` (the theme), each written whole to a temp file and renamed; and `julix.toml`
+  under `$XDG_CONFIG_HOME/paperboat` (as Articula's `articula.toml`), the editor settings the kit's
+  `useEditorSettings` reads and writes (`GET`/`PUT /api/config`), one file for every Julix window whatever its port.
 - `server/control.ts`, `server/runtime.ts`: the protocol clients, copied from Malachite.
 - `server/main.ts`: the HTTP server: the page from `dist/`, the JSON API, Server-Sent Events. The
   workspace (`{kind: "folder" | "hub", root, name, hub?}` or null) switches at runtime through `workIn`: a

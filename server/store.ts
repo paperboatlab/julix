@@ -58,3 +58,24 @@ export function saveSettings(change: { theme?: Theme; scale?: Scale }) {
   const old = read("settings.json");
   write("settings.json", { ...(old && typeof old === "object" ? old : {}), ...change, version: 1 });
 }
+
+/** `julix.toml`, the editor settings file (the kit's ConfigStore: [editor] and [themes.<name>], as Articula keeps
+ *  articula.toml): $XDG_CONFIG_HOME/paperboat (else ~/.config/paperboat; %APPDATA%\paperboat on Windows). One file
+ *  for every Julix window, whatever port its page is on, where the page's own storage is per port. */
+export function configFile(): string {
+  const env = process.env;
+  const dir = process.platform === "win32" ? env.APPDATA || path.join(os.homedir(), "AppData", "Roaming") : env.XDG_CONFIG_HOME || path.join(os.homedir(), ".config");
+  return path.join(dir, "paperboat", "julix.toml");
+}
+/** The file as the page shows it (`~` for the home folder) and its text, null while there is none. */
+export function readConfigFile(): { path: string; text: string | null } {
+  const f = configFile(), home = os.homedir();
+  const shown = home && f.startsWith(home + path.sep) ? `~${f.slice(home.length)}` : f;
+  try { return { path: shown, text: fs.readFileSync(f, "utf8") }; } catch { return { path: shown, text: null }; }
+}
+export function writeConfigFile(text: string) {
+  const f = configFile(), tmp = `${f}.${process.pid}.tmp`;
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(tmp, text);
+  fs.renameSync(tmp, f);
+}

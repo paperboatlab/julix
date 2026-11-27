@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { Control, ControlError, paperboatVersion } from "./control.ts";
 import { Folder, FolderError } from "./folder.ts";
 import { copyExample, examples, holds, hubs, openExample, paperboat } from "./hubs.ts";
-import { forget, isScale, isTheme, recent, remember, saveSettings, settings } from "./store.ts";
+import { forget, isScale, isTheme, readConfigFile, recent, remember, saveSettings, settings, writeConfigFile } from "./store.ts";
 import { PackageError } from "./packages.ts";
 import { Sessions, type Kind } from "./session.ts";
 import { Share } from "./share.ts";
@@ -160,6 +160,8 @@ export function serve(dir: string | null, port = DEFAULT_PORT, control = new Con
           saveSettings({ ...(theme !== undefined ? { theme } : {}), ...(scale !== undefined ? { scale } : {}) });
           return send(res, 200, settings());
         }
+        case "GET /api/config": return send(res, 200, readConfigFile());   // julix.toml: the editor settings (the kit's ConfigStore)
+        case "PUT /api/config": { writeConfigFile(str("text")); return send(res, 200, {}); }
         case "GET /api/hubs": {   // with what each holds, for Connect to a hub
           const list = await hubs();
           return send(res, 200, list.map((h) => (h.missing ? h : { ...h, holds: holds(h.path) })));
