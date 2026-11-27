@@ -10,7 +10,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Control, ControlError, paperboatVersion } from "./control.ts";
 import { Folder, FolderError } from "./folder.ts";
-import { examples, holds, hubs, openExample, paperboat } from "./hubs.ts";
+import { copyExample, examples, holds, hubs, openExample, paperboat } from "./hubs.ts";
 import { forget, isScale, isTheme, recent, remember, saveSettings, settings } from "./store.ts";
 import { PackageError } from "./packages.ts";
 import { Sessions, type Kind } from "./session.ts";
@@ -181,7 +181,12 @@ export function serve(dir: string | null, port = DEFAULT_PORT, control = new Con
           return send(res, 200, {});
         }
         case "GET /api/examples": return send(res, 200, await examples());   // Open example: in Ctrl K (paperboat#72)
-        case "POST /api/examples/open": return send(res, 200, await openExample(str("id")).catch((e) => { throw new FolderError(e.message, 502); }));
+        case "POST /api/examples/open":   // in place; its Copy goes to this workspace's folder, if one is open (paperboat#75)
+          return send(res, 200, await openExample(str("id"), ws?.root).catch((e) => { throw new FolderError(e.message, 502); }));
+        case "POST /api/examples/copy": {   // the banner's Copy: into `to`, the copy opened in a new window
+          const to = absolute(str("to"));   // a whole path, so never an option
+          return send(res, 200, await copyExample(str("id"), to).catch((e) => { throw new FolderError(e.message, 502); }));
+        }
         case "GET /api/paperboat": return send(res, 200, { version: await paperboatVersion() });
         case "GET /api/runtimes": {   // the runtimes key: this workspace's session, or only whether Julia is there
           if (sessions) return send(res, 200, await sessions.peek());

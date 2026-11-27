@@ -65,8 +65,10 @@ export const api = {
   manageRuntimes: () => call("POST", "/api/launcher", {}),
   /** The examples for Ctrl K (`paperboat example list`); [] without Paperboat. */
   examples: () => call<Example[]>("GET", "/api/examples"),
-  /** Open example: the CLI copies it for the user and opens the copy in a new window. */
+  /** Open example: the CLI opens it where it is, in a new window with the example banner; its Copy goes to this folder. */
   openExample: (id: string) => call("POST", "/api/examples/open", { id }),
+  /** The example banner's Copy: into `to`, the copy opened in a new window. */
+  copyExample: (id: string, to: string) => call<{ path: string }>("POST", "/api/examples/copy", { id, to }),
   tree: () => call<{ files: Entry[] }>("GET", "/api/tree"),
   file: (p: string) => call<{ path: string; text: string }>("GET", `/api/file?path=${q(p)}`),
   save: (p: string, text: string) => call("PUT", `/api/file?path=${q(p)}`, { text }),
