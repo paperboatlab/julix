@@ -19,6 +19,7 @@ export type HubInfo = { id: string; name: string; path: string; shown: string; p
 /** What Julix works in (server/main.ts): a folder, a hub, or null (the Start page). */
 export type Workspace = { kind: "folder" | "hub"; root: string; name: string; hub?: string };
 export type Theme = "light" | "dark" | "system";
+export type Scale = 0.75 | 1 | 1.25;
 export type RecentEntry = { kind: "folder" | "hub" | "file"; path: string; hub?: string; app?: string; at: number };
 export type Variable = { name: string; type: string; summary: string; size?: number };
 export type Breakpoint = { line: number; condition?: string; enabled?: boolean };
@@ -53,8 +54,9 @@ export const api = {
   /** A file of the workspace opened: first in recent.json. */
   opened: (path: string) => call("POST", "/api/recent", { path }),
   clearRecent: () => call("POST", "/api/recent/clear", {}),
-  settings: () => call<{ theme: Theme }>("GET", "/api/settings"),
+  settings: () => call<{ theme: Theme; scale: Scale }>("GET", "/api/settings"),
   setTheme: (theme: Theme) => call("PUT", "/api/settings", { theme }),
+  setScale: (scale: Scale) => call("PUT", "/api/settings", { scale }),
   hubs: () => call<HubInfo[]>("GET", "/api/hubs"),
   hubNew: (name: string) => call<Workspace>("POST", "/api/hubs/new", { name }),
   hubInMalachite: (id: string) => call("POST", "/api/hubs/malachite", { id }),

@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { Control, ControlError, paperboatVersion } from "./control.ts";
 import { Folder, FolderError } from "./folder.ts";
 import { holds, hubs, paperboat } from "./hubs.ts";
-import { forget, recent, remember, setTheme, settings } from "./store.ts";
+import { forget, isScale, isTheme, recent, remember, saveSettings, settings } from "./store.ts";
 import { PackageError } from "./packages.ts";
 import { Sessions, type Kind } from "./session.ts";
 import { Share } from "./share.ts";
@@ -154,9 +154,10 @@ export function serve(dir: string | null, port = DEFAULT_PORT, control = new Con
         case "POST /api/recent/clear": { forget(); return send(res, 200, {}); }
         case "GET /api/settings": return send(res, 200, settings());
         case "PUT /api/settings": {
-          const t = str("theme");
-          if (t !== "light" && t !== "dark" && t !== "system") throw new FolderError("theme is light, dark or system");
-          setTheme(t);
+          const { theme, scale } = body;   // either or both
+          if (theme !== undefined && !isTheme(theme)) throw new FolderError("theme is light, dark or system");
+          if (scale !== undefined && !isScale(scale)) throw new FolderError("scale is 0.75, 1 or 1.25");
+          saveSettings({ ...(theme !== undefined ? { theme } : {}), ...(scale !== undefined ? { scale } : {}) });
           return send(res, 200, settings());
         }
         case "GET /api/hubs": {   // with what each holds, for Connect to a hub
