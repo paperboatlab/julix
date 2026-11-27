@@ -9,7 +9,7 @@ import {
 import { EditorSettingsPane, EditorTabs, afterClose, orderTabs, tabMenu, useEditorSettings, type EditorPos } from "@paperboatlab/ui/editor";
 import { FileTree, fileIconFor, type FileActions, type FileEntry } from "@paperboatlab/ui/files";
 import { ConnectHub, HubMark, OpenFile, SaveFile, type Hub } from "@paperboatlab/ui/hub";
-import { AskOpen, Start, TypedPath, Unsaved, WorkspaceWell, fileMenu, recentFor, recentMenu, shell, tilde, type RecentEntry } from "@paperboatlab/ui/workspace";
+import { AskOpen, Start, TypedPath, Unsaved, WorkspaceWell, baseName, fileMenu, recentFor, recentMenu, shell, tilde, useOpening, type Opening, type RecentEntry } from "@paperboatlab/ui/workspace";
 import { redo, undo } from "@codemirror/commands";
 import { openSearchPanel } from "@codemirror/search";
 import { EditorView } from "@codemirror/view";
@@ -144,6 +144,7 @@ export function App() {
   const unsaved = useRef(new Map<string, number>());   // a file that failed to save: its toast, till a save goes through
   currentRef.current = current;
   const switching = useRef(false);   // this page moves the server to another folder: it reloads itself
+  const opener = useOpening();   // a folder or hub on its way: Start, the well and Connect to a hub say so
 
   useEffect(() => writeStored("paperboat.theme", theme), [theme]);
   useEffect(() => writeStored("paperboat.scale", scale), [scale]);
@@ -270,23 +271,23 @@ export function App() {
   // the one file workflow: the server switches the workspace (a folder, a hub, none), the page reloads on it
   const home = info?.home;
   const sh = shell();
-  const switchTo = (go: () => Promise<Place | null | { workspace: Place; path: string }>, ask = true) => {
-    const run = async () => {
-      try {
-        switching.current = true;
-        const r = await go();
-        const w = r && "path" in r ? r.workspace : r as Place | null;
-        writeStored("julix.root", w?.root ?? null); writeStored("julix.tabs", r && "path" in r ? [r.path] : []); writeStored("julix.pinned", []);
-        location.reload();
-      } catch (e) { switching.current = false; fail(e); }
+  // `what`: the folder, file or hub on its way: Start, the well and Connect to a hub say so until the page reloads in it
+  const switchTo = (what: Omit<Opening, "error" | "detail"> | null, go: () => Promise<Place | null | { workspace: Place; path: string }>, ask = true) => {
+    const work = async () => {
+      switching.current = true;
+      const r = await go();
+      const w = r && "path" in r ? r.workspace : r as Place | null;
+      writeStored("julix.root", w?.root ?? null); writeStored("julix.tabs", r && "path" in r ? [r.path] : []); writeStored("julix.pinned", []);
+      location.reload();
     };
+    const run = () => (what ? opener.open(what, work) : work()).catch((e) => { switching.current = false; fail(e); });
     if (ask) guard(ws?.kind === "hub" ? "the hub" : "the folder", run); else run();
   };
   /** A file by its whole path (`~` the home folder): in the workspace it opens; from outside, the workspace follows it. */
   const openAbs = (p: string) => {
     const abs = home && /^~(\/|$)/.test(p.trim()) ? home + p.trim().slice(1) : p.trim();
     const rel = ws && inside(ws.root, abs);
-    if (rel) open(rel); else switchTo(() => api.openPath(abs));
+    if (rel) open(rel); else switchTo({ name: baseName(abs), path: p }, () => api.openPath(abs));
   };
   const pickLocal = () => {
     setDialog(null);
@@ -295,16 +296,16 @@ export function App() {
   // Open file…: in a hub, our picker over it; outside, with Malachite, ask (a local file, or a hub); else the local file
   const openFile = () => { if (ws?.kind === "hub") setDialog("open"); else if (hubs.length) { readHubs(); setDialog("ask"); } else pickLocal(); };
   const openFolder = () => {
-    if (sh) sh.pickFolder("Open folder").then((p) => p && switchTo(() => api.workIn({ kind: "folder", path: p })), fail); else setDialog("folder");
+    if (sh) sh.pickFolder("Open folder").then((p) => p && switchTo({ name: baseName(p), path: p }, () => api.workIn({ kind: "folder", path: p })), fail); else setDialog("folder");
   };
   const connect = () => { readHubs(); setDialog("hub"); };
-  const toHub = (id: string) => switchTo(() => api.workIn({ kind: "hub", id }));
-  const closeWorkspace = () => switchTo(() => api.workIn({ kind: null }));
-  const newHub = () => setAsk({ title: "New hub", label: "Name", ok: "Create", run: (n) => switchTo(() => api.hubNew(n)) });
+  const toHub = (id: string) => switchTo({ name: hubs.find((h) => h.id === id)?.name ?? "the hub", hub: id }, () => api.workIn({ kind: "hub", id }));
+  const closeWorkspace = () => switchTo(null, () => api.workIn({ kind: null }));
+  const newHub = () => setAsk({ title: "New hub", label: "Name", ok: "Create", run: (n) => switchTo({ name: n }, () => api.hubNew(n)) });
   const openRecent = (e: RecentEntry) => {
     if (e.kind === "file") openAbs(e.path);
     else if (e.kind === "hub" && e.hub && hubs.some((h) => h.id === e.hub)) toHub(e.hub);   // by its id: a moved hub is found
-    else switchTo(() => api.workIn({ kind: "folder", path: e.path }));   // the server knows a hub's folder
+    else switchTo({ name: baseName(e.path), path: e.path }, () => api.workIn({ kind: "folder", path: e.path }));   // the server knows a hub's folder
   };
   const recentItems = recentMenu(recentFor({ version: 1, recent }, "julix", { hubs: hubs.length > 0 }), openRecent,
     () => { api.clearRecent().then(() => setRecent([]), fail); });
@@ -321,7 +322,7 @@ export function App() {
       sh.pickSave(base(current), TYPES, "Save as").then((p) => {
         const rel = p && ws && inside(ws.root, p);
         if (rel) api.save(rel, body).then(() => { reload(); open(rel); }, fail);
-        else if (p) switchTo(() => api.saveAs(p, body), false);   // the old file keeps what it had on disk
+        else if (p) switchTo(null, () => api.saveAs(p, body), false);   // the old file keeps what it had on disk
       }, fail);
       return;
     }
@@ -376,9 +377,9 @@ export function App() {
   // New script: in the workspace, a name; with none, where it goes (the system's dialog, or a typed path)
   const newScript = (dir = current && !current.startsWith("@") ? dirOf(current) : "") => {
     if (!ws) {
-      if (sh) sh.pickSave("untitled.jl", ["jl"], "New script").then((p) => p && switchTo(() => api.saveAs(p, NEW_SCRIPT)), fail);
+      if (sh) sh.pickSave("untitled.jl", ["jl"], "New script").then((p) => p && switchTo(null, () => api.saveAs(p, NEW_SCRIPT)), fail);
       else setAsk({ title: "New script", label: "Whole path", value: `${home ? "~" : ""}/untitled.jl`, ok: "Create",
-        run: (p) => switchTo(() => api.saveAs(home && /^~(\/|$)/.test(p) ? home + p.slice(1) : p, NEW_SCRIPT, true)) });
+        run: (p) => switchTo(null, () => api.saveAs(home && /^~(\/|$)/.test(p) ? home + p.slice(1) : p, NEW_SCRIPT, true)) });
       return;
     }
     setAsk({
@@ -529,7 +530,7 @@ export function App() {
       <header className="bar">
         <span className="lk"><AppMark app="julix" size={26} idle={!running} label="Julix" /><span className="wm">Julix</span></span>
         <MenuBar commands={commands} menus={MENUS} groupTitles={{ theme: "Theme" }} />
-        {ws && <WorkspaceWell workspace={ws} home={home} recent={recentItems} hubs={hubs.map(kitHub)} onOpenFolder={openFolder} onConnect={connect}
+        {ws && <WorkspaceWell workspace={ws} home={home} recent={recentItems} hubs={hubs.map(kitHub)} opening={opener.opening} onOpenFolder={openFolder} onConnect={connect}
           onClose={closeWorkspace} onSwitchHub={toHub} onNewHub={newHub} onUseFolder={openFolder}
           onOpenInMalachite={hub && !hub.missing ? () => { api.hubInMalachite(hub.id).then(() => show({ title: `${hub.name} opens in Malachite`, state: "done" }), fail); } : undefined} />}
         <span className="bend">
@@ -546,11 +547,11 @@ export function App() {
       </header>
 
       {info && !ws && <main className="ws start"><div className="mid bay"><section className="panel start-card">
-        <Start app="Julix" noun="script" nouns="scripts" hubs={hubs.length > 0} recent={recent} home={home} onOpenFolder={openFolder} onOpenFile={openFile}
+        <Start app="Julix" noun="script" nouns="scripts" hubs={hubs.length > 0} recent={recent} home={home} opening={opener.opening} onOpenFolder={openFolder} onOpenFile={openFile}
           onNew={() => newScript()} onConnect={connect} onRecent={openRecent} onDrop={(e) => {
             // a Paperboat window gives a dropped file's path; a browser can't say where it lives: type it
             const f = e.dataTransfer.files[0] as (File & { path?: string }) | undefined;
-            if (f?.path) { if (f.type || /\.\w+$/.test(f.name)) openAbs(f.path); else switchTo(() => api.workIn({ kind: "folder", path: f.path! })); }
+            if (f?.path) { if (f.type || /\.\w+$/.test(f.name)) openAbs(f.path); else switchTo({ name: baseName(f.path), path: f.path }, () => api.workIn({ kind: "folder", path: f.path! })); }
             else setDialog(f && /\.\w+$/.test(f.name) ? "file" : "folder");
           }} />
       </section></div></main>}
@@ -646,7 +647,7 @@ export function App() {
         </> }] : []),
         { id: "shortcuts", label: "Shortcuts", icon: "keys", body: <ShortcutList commands={[...commands, ...EDITOR_KEYS]} menus={MENUS} /> },
       ]} />}
-      {dialog === "hub" && <ConnectHub app="Julix" hubs={hubs.map(kitHub)} onClose={() => setDialog(null)}
+      {dialog === "hub" && <ConnectHub app="Julix" hubs={hubs.map(kitHub)} opening={opener.opening} onClose={() => setDialog(null)}
         onConnect={(id) => { setDialog(null); if (id !== ws?.hub) toHub(id); }} onNew={() => { setDialog(null); newHub(); }} />}
       {dialog === "ask" && <AskOpen what="a script" types={TYPES} hubs={hubs.length} onLocal={pickLocal} onConnect={connect} onClose={() => setDialog(null)} />}
       {dialog === "open" && <OpenFile what="a script" types={TYPES} kinds="Scripts" hub={pickHub} list={async () => rows(tree.files)} onClose={() => setDialog(null)}
@@ -655,7 +656,7 @@ export function App() {
       {dialog === "save" && current && <SaveFile what={base(current)} types={TYPES} name={base(current).replace(/(\.\w+)?$/, "-v2$1")} hub={pickHub} list={async () => rows(tree.files)} onClose={() => setDialog(null)}
         onSave={(p) => { setDialog(null); api.save(p, draft ?? doc?.text ?? "").then(() => { reload(); open(p); }, fail); }} />}
       {dialog === "folder" && <TypedPath title="Open folder" onClose={() => setDialog(null)}
-        onOpen={(p) => { setDialog(null); switchTo(() => api.workIn({ kind: "folder", path: p })); }} />}
+        onOpen={(p) => { setDialog(null); switchTo({ name: baseName(p), path: p }, () => api.workIn({ kind: "folder", path: p })); }} />}
       {dialog === "file" && <TypedPath title="Open a local file" what="file" onClose={() => setDialog(null)} onOpen={(p) => { setDialog(null); openAbs(p); }} />}
       {closing && current && <Unsaved name={base(current)} closing={closing.what} onClose={() => setClosing(null)}
         onSave={() => { const then = closing.then; setClosing(null); save(current, draft!).then((ok) => ok && then()); }}
