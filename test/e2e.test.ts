@@ -8,6 +8,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { Control } from "../server/control.ts";
 import { Folder } from "../server/folder.ts";
+import { depsVolume } from "../server/packages.ts";
 import { Sessions, type Run } from "../server/session.ts";
 
 const daemon = process.env.PAPERBOATD ?? (process.env.PATH ?? "").split(path.delimiter).map((d) => path.join(d, "paperboatd")).find((p) => fs.existsSync(p));
@@ -94,5 +95,37 @@ PBFig()`));
     assert.match(await s.helpPage("Base.argmin"), /<pre><code>argmin/);
   } finally {
     s.close();
+  }
+});
+
+test("a fresh deps volume gets JulixPlot before the first session: added to a new folder, a Manifest that pins it instantiated", { skip: !daemon && "no paperboatd", timeout: 1_200_000 }, async () => {
+  const using = 'using JulixPlot; print(pathof(JulixPlot))';
+  // a new folder: JulixPlot is added (its Project.toml and Manifest.toml written)
+  const a = new Folder(fs.mkdtempSync(path.join(os.tmpdir(), "julix-e2e-new-")));
+  const control = new Control();
+  const sa = new Sessions(a, control, () => {});
+  const ra = await done(sa.run("console", "console", using));
+  sa.close();
+  assert.equal(ra.state, "done", JSON.stringify(ra.outputs));
+  // the same Project and Manifest in another folder (an example's, read-only): its deps volume is a fresh one,
+  // which gets the Manifest's packages without the folder being written
+  const b = new Folder(fs.mkdtempSync(path.join(os.tmpdir(), "julix-e2e-example-")));
+  for (const f of ["Project.toml", "Manifest.toml"]) fs.copyFileSync(path.join(a.root, f), path.join(b.root, f));
+  const manifest = fs.readFileSync(path.join(b.root, "Manifest.toml"), "utf8");
+  fs.chmodSync(b.root, 0o555);
+  const events: Record<string, unknown>[] = [];
+  const control2 = new Control();
+  assert.equal(await depsVolume(control2, b.root), null);
+  const sb = new Sessions(b, control2, (e) => events.push(e));
+  try {
+    const rb = await done(sb.run("console", "console", using));
+    assert.equal(rb.state, "done", JSON.stringify(rb.outputs));
+    assert.match(JSON.stringify(rb.outputs), /\/work\/deps\/packages\/JulixPlot\//);
+    assert.ok(events.some((e) => e.type === "session" && /from the Manifest/.test(String(e.detail))), "the start says it installs");
+    assert.equal(fs.readFileSync(path.join(b.root, "Manifest.toml"), "utf8"), manifest);
+    assert.deepEqual(fs.readdirSync(b.root).sort(), ["Manifest.toml", "Project.toml"]);
+  } finally {
+    sb.close();
+    fs.chmodSync(b.root, 0o755);
   }
 });

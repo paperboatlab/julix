@@ -219,9 +219,14 @@ export function App() {
     else if (e.type === "debug") stopped(e.paused as Paused | null);
     else if (e.type === "folder" && !switching.current) { leaveExample(); location.reload(); }   // another page moved the server to another workspace
     else if (e.type === "session") {
-      setSession(e.state); setPeekVersion((v) => v + 1);
-      // the session starts in the background (the first time in a folder it adds JulixPlot too): one toast, working to its end
-      if (e.state === "starting") starting.current ??= show({ title: "Starting Julia", detail: "runs wait for it", state: "working" });
+      setSession(e.state); if (!e.detail) setPeekVersion((v) => v + 1);
+      // the session starts in the background: one toast, working to its end
+      // its packages first, when the folder's deps volume lacks them: the detail follows Pkg's latest line
+      if (e.state === "starting") {
+        const detail = (e.detail as string | undefined) ?? "runs wait for it";
+        if (starting.current === null) starting.current = show({ title: "Starting Julia", detail, state: "working" });
+        else if (e.detail) show({ id: starting.current, title: "Starting Julia", detail, state: "working" });
+      }
       else if (starting.current !== null) {
         show({ id: starting.current, ...(e.state === "running" ? { title: "Julia is ready", state: "done" } : { title: "Julia didn't start", detail: "the Console has the error", state: "failed" }) });
         starting.current = null;

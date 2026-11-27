@@ -7,7 +7,7 @@ import path from "node:path";
 import { Control, type Lease } from "./control.ts";
 import { Folder } from "./folder.ts";
 import { Runtime, RuntimeError } from "./runtime.ts";
-import { addJulixPlot, hasJulixPlot } from "./packages.ts";
+import { addJulixPlot, depsVolume, hasJulixPlot, instantiate, missing } from "./packages.ts";
 
 export type Kind = "file" | "cell" | "line" | "console";
 /** A breakpoint in a file (paperboat docs/runtime.md "Debugging"): a line, and Julia code that must be true. */
@@ -92,8 +92,17 @@ export class Sessions {
   private open(): Promise<Session> {
     this.session ??= (async () => {
       this.set("starting");
-      // JulixPlot comes with Julix: added to the folder's project before the first session, once
-      if (!hasJulixPlot(this.folder.root)) await addJulixPlot(this.control, this.folder);
+      // the folder's packages before the first session (server/packages.ts): JulixPlot added when the project
+      // doesn't list it, else what the Manifest records and the deps volume lacks instantiated
+      const root = this.folder.root, step = (detail: string) => this.emit({ type: "session", state: "starting", detail });
+      if (!hasJulixPlot(root)) { step("Adding JulixPlot"); await addJulixPlot(this.control, this.folder, step); }
+      else {
+        const lacking = missing(root, await depsVolume(this.control, root));
+        if (lacking.length) {
+          step(`Installing ${lacking.length === 1 ? lacking[0] : `${lacking.length} packages`} from the Manifest`);
+          await instantiate(this.control, this.folder, step);
+        }
+      }
       // ponytail: one retry; a Julia that ends while starting (seen once, exit 0, no output) usually starts the second time
       const start = async (): Promise<{ lease: Lease; rt: Runtime }> => {
         const lease = await this.control.call<Lease>("acquire", { runtime: "julia", mode: "session", project: this.folder.root, owner: OWNER(this.folder) });
