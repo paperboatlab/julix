@@ -497,7 +497,7 @@ export function App() {
     { id: "help.manual", label: "Julix on GitHub", menu: "help", group: "docs", icon: "link-external", run: () => { window.open("https://github.com/paperboatlab/julix#readme", "_blank", "noopener"); } },
     { id: "help.about", label: "About Julix", menu: "help", group: "about", icon: "info", run: () => setDialog("about") },
     // Open example: <name>, only in Ctrl K: the CLI opens it where it is, in a new window with the example banner
-    ...exampleCommands(examples, (id) => { api.openExample(id).catch(fail); }),
+    ...exampleCommands(examples, (id) => { api.openExample(id, opened ? opened.to ?? null : undefined).catch(fail); }),   // an example's window: its own folder
   ];
   useShortcuts(commands);
   const searchItems: SearchItem[] = [

@@ -19,7 +19,7 @@ echo "$*" >> ${seen}
 case "$*" in
   "example list --app julix --json") echo '${JSON.stringify([ENTRY, { name: "no id" }])}' ;;
   "hub list --json") echo '[]' ;;
-  "example open julix/01-matrices --json"|"example open julix/01-matrices --to ${work} --json") echo '${JSON.stringify({ ...ENTRY, session: "s1" })}' ;;
+  "example open julix/01-matrices --json"|"example open julix/01-matrices --to ${work} --json"|"example open julix/01-matrices --to /there --json") echo '${JSON.stringify({ ...ENTRY, session: "s1" })}' ;;
   "example copy julix/01-matrices --to ${work} --open --json") echo '${JSON.stringify(COPY)}' ;;
   "example copy julix/01-matrices --to /there --open --json") echo '{"error": "/there/01-matrices is there already; copy it to another folder"}'; exit 2 ;;
   *) echo '{"error": "no example; paperboat example list shows them"}'; exit 2 ;;
@@ -48,10 +48,15 @@ esac
     // with a folder open, the example's Copy goes there
     assert.equal((await call("POST", "/api/workspace", { kind: "folder", path: work })).status, 200);
     assert.deepEqual(await call("POST", "/api/examples/open", { id: "julix/01-matrices" }), { status: 200, json: { ...ENTRY, session: "s1" } });
+    // an example's window passes its own folder on (its workspace is the examples checkout), or none (null)
+    assert.equal((await call("POST", "/api/examples/open", { id: "julix/01-matrices", to: "/there" })).status, 200);
+    assert.equal((await call("POST", "/api/examples/open", { id: "julix/01-matrices", to: null })).status, 200);
+    assert.equal((await call("POST", "/api/examples/open", { id: "julix/01-matrices", to: "work" })).status, 400);   // never reaches the CLI
     assert.deepEqual(fs.readFileSync(seen, "utf8").trim().split("\n"), [
       "example list --app julix --json", "example open julix/01-matrices --json", "example open julix/nope --json",
       `example copy julix/01-matrices --to ${work} --open --json`, "example copy julix/01-matrices --to /there --open --json",
       "hub list --json", `example open julix/01-matrices --to ${work} --json`,
+      "example open julix/01-matrices --to /there --json", "example open julix/01-matrices --json",
     ]);
     // no Paperboat: no examples, and Julix works on
     process.env.PAPERBOAT_BIN = path.join(tmp, "no-such-paperboat");

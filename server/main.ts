@@ -181,8 +181,11 @@ export function serve(dir: string | null, port = DEFAULT_PORT, control = new Con
           return send(res, 200, {});
         }
         case "GET /api/examples": return send(res, 200, await examples());   // Open example: in Ctrl K (paperboat#72)
-        case "POST /api/examples/open":   // in place; its Copy goes to this workspace's folder, if one is open (paperboat#75)
-          return send(res, 200, await openExample(str("id"), ws?.root).catch((e) => { throw new FolderError(e.message, 502); }));
+        case "POST /api/examples/open": {   // in place; its Copy goes to `to` (an example's window passes its own on,
+          // null: none), else this workspace's folder, if one is open (paperboat#75)
+          const to = !("to" in body) ? ws?.root : body.to == null ? undefined : absolute(str("to"));
+          return send(res, 200, await openExample(str("id"), to).catch((e) => { throw new FolderError(e.message, 502); }));
+        }
         case "POST /api/examples/copy": {   // the banner's Copy: into `to`, the copy opened in a new window
           const to = absolute(str("to"));   // a whole path, so never an option
           return send(res, 200, await copyExample(str("id"), to).catch((e) => { throw new FolderError(e.message, 502); }));
