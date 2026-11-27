@@ -61,6 +61,11 @@ test("open a folder, a hub, a file from outside, close; recent and settings shar
     fs.writeFileSync(path.join(home, "settings.json"), JSON.stringify({ version: 1, theme: "light", other: 1 }));
     assert.equal((await call("PUT", "/api/settings", { theme: "dark" })).json.theme, "dark");
     assert.deepEqual(JSON.parse(fs.readFileSync(path.join(home, "settings.json"), "utf8")), { version: 1, theme: "dark", other: 1 });
+    // the scale beside it (1 when unset); an unknown one is refused
+    assert.equal((await call("GET", "/api/settings")).json.scale, 1);
+    assert.equal((await call("PUT", "/api/settings", { scale: 0.75 })).json.scale, 0.75);
+    assert.equal((await call("PUT", "/api/settings", { scale: 2 })).status, 400);
+    assert.deepEqual(JSON.parse(fs.readFileSync(path.join(home, "settings.json"), "utf8")), { version: 1, theme: "dark", other: 1, scale: 0.75 });
     assert.deepEqual(fs.readdirSync(home).sort(), ["recent.json", "settings.json"]);   // no temp file left
   } finally {
     server.close();

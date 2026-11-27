@@ -1,6 +1,6 @@
 // The store every app shares under $PAPERBOAT_HOME (plans/2026-11-26_11-05_one_file_workflow.md, "The contract"):
 // `recent.json` (the folders, hubs and files opened, newest first) and `settings.json` (the theme every app
-// starts in). Each is read whole and written whole, to a temp file then renamed, so another app never reads half.
+// and the interface scale every app starts in). Each is read whole and written whole, to a temp file then renamed, so another app never reads half.
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
@@ -14,6 +14,9 @@ export function paperboatHome(): string {
 }
 
 export type Theme = "light" | "dark" | "system";
+export type Scale = 0.75 | 1 | 1.25;
+export const isTheme = (v: unknown): v is Theme => v === "light" || v === "dark" || v === "system";
+export const isScale = (v: unknown): v is Scale => v === 0.75 || v === 1 || v === 1.25;
 export type RecentKind = "folder" | "hub" | "file";
 export type RecentEntry = { kind: RecentKind; path: string; hub?: string; app?: string; at: number };
 export const RECENT_MAX = 40;
@@ -46,12 +49,12 @@ export function remember(e: { kind: RecentKind; path: string; hub?: string }) {
 /** Clear recent: the list is shared, so it is cleared for every app. */
 export const forget = () => write("recent.json", { version: 1, recent: [] });
 
-/** `settings.json`: the theme ("system" when unset); other keys another app wrote are kept on write. */
-export function settings(): { version: 1; theme: Theme } {
-  const t = read("settings.json")?.theme;
-  return { version: 1, theme: t === "light" || t === "dark" ? t : "system" };
+/** `settings.json`: the theme ("system" when unset) and the scale (1 when unset); other keys another app wrote are kept on write. */
+export function settings(): { version: 1; theme: Theme; scale: Scale } {
+  const s = read("settings.json");
+  return { version: 1, theme: s?.theme === "light" || s?.theme === "dark" ? s.theme : "system", scale: isScale(s?.scale) ? s.scale : 1 };
 }
-export function setTheme(theme: Theme) {
+export function saveSettings(change: { theme?: Theme; scale?: Scale }) {
   const old = read("settings.json");
-  write("settings.json", { ...(old && typeof old === "object" ? old : {}), version: 1, theme });
+  write("settings.json", { ...(old && typeof old === "object" ? old : {}), ...change, version: 1 });
 }

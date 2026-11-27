@@ -3,8 +3,8 @@
 // keys); Settings (File › Settings…, Ctrl ,) is the kit's window: General, Julix, Editor, Hub, Shortcuts; Files at the left; the script and its figure; the Workspace card at the right; the Console below.
 // No workspace: the Start page in the bay. Everything shown comes from the app server; the files are the record.
 import {
-  About, AppMark, DebugDock, DEBUG_KEYS, Dialog, HelpWindow, Icon, Key, Menu, MenuBar, Notifications, Panel, PanelsKey, SEARCH_CHORD, Search, SettingRow, Settings, SettingsSection, ShortcutList, Spinner, Split, ThemeSetting, Toasts, WindowKeys, readStored, useShortcuts, useTheme, useToasts, writeStored,
-  type Command, type Credit, type HelpProvider, type MenuEntry, type PaneRect, type SearchItem, type Theme,
+  About, AppMark, DebugDock, DEBUG_KEYS, Dialog, HelpWindow, Icon, Key, Menu, MenuBar, Notifications, Panel, PanelsKey, SEARCH_CHORD, Search, SettingRow, Settings, SettingsSection, ScaleSetting, ShortcutList, Spinner, Split, ThemeSetting, Toasts, WindowKeys, isScale, readStored, useScale, useShortcuts, useTheme, useToasts, writeStored,
+  type Command, type Credit, type Scale, type HelpProvider, type MenuEntry, type PaneRect, type SearchItem, type Theme,
 } from "@paperboatlab/ui";
 import { EditorSettingsPane, EditorTabs, afterClose, orderTabs, tabMenu, useEditorSettings, type EditorPos } from "@paperboatlab/ui/editor";
 import { FileTree, fileIconFor, type FileActions, type FileEntry } from "@paperboatlab/ui/files";
@@ -85,6 +85,9 @@ export function App() {
   const [theme, setThemeHere] = useState<Theme>(() => readStored("paperboat.theme", isTheme) ?? "system");
   const setTheme = useCallback((t: Theme) => { setThemeHere(t); api.setTheme(t).catch(() => {}); }, []);
   const appTheme = useTheme(theme);
+  const [scale, setScaleHere] = useState<Scale>(() => readStored("paperboat.scale", isScale) ?? 1);
+  const setScale = useCallback((s: Scale) => { setScaleHere(s); api.setScale(s).catch(() => {}); }, []);
+  useScale(scale);
   const [editor, setEditor] = useEditorSettings(undefined, "julix.editor");   // ponytail: in localStorage until Julix keeps a settings file
   // what Julix works in: a folder, a hub, or nothing (the Start page); undefined till the server says
   const [info, setInfo] = useState<{ workspace: Place | null; home: string; version: string }>();
@@ -143,6 +146,14 @@ export function App() {
   const switching = useRef(false);   // this page moves the server to another folder: it reloads itself
 
   useEffect(() => writeStored("paperboat.theme", theme), [theme]);
+  useEffect(() => writeStored("paperboat.scale", scale), [scale]);
+  // another app may change them: read again when the window comes back
+  useEffect(() => {
+    const read = () => api.settings().then((v) => { setThemeHere(v.theme); setScaleHere(v.scale); }, () => {});
+    read();
+    addEventListener("focus", read);
+    return () => removeEventListener("focus", read);
+  }, []);
   useEffect(() => writeStored("julix.panels", hidden), [hidden]);
   useEffect(() => writeStored("julix.pinned", [...pinned]), [pinned]);
   useEffect(() => writeStored("julix.tabs", current ? [current, ...tabs.filter((t) => t !== current)] : tabs), [tabs, current]);
@@ -161,7 +172,6 @@ export function App() {
   const reloadFigures = useCallback(() => api.figures().then((fs) => { setFigures(fs); setShown((s) => s ?? (fs[0] ? { run: fs[0].run, n: fs[0].n } : null)); }, () => {}), []);
   useEffect(() => {
     readHubs(); readRecent();
-    api.settings().then((v) => setThemeHere(v.theme), () => {});
     api.workspace().then((v) => {
       setInfo(v); setSession(v.session);
       document.title = v.workspace ? `${v.workspace.name} · Julix` : "Julix";
@@ -617,7 +627,7 @@ export function App() {
       {search && <Search items={searchItems} scopes={["All", "Files", "Variables", "Figures", "Commands", "Help"]} placeholder={ws ? `Search ${ws.name}, or run a command` : "Run a command"} onClose={() => setSearch(false)} />}
       {ask && <AskDialog ask={ask} onClose={() => setAsk(null)} />}
       {dialog === "settings" && <Settings app="Julix" page={settingsPage} onClose={() => setDialog(null)} pages={[
-        { id: "general", label: "General", icon: "a-settings", body: <ThemeSetting theme={theme} onTheme={setTheme} /> },
+        { id: "general", label: "General", icon: "a-settings", body: <><ThemeSetting theme={theme} onTheme={setTheme} /><ScaleSetting scale={scale} onScale={setScale} /></> },
         { id: "julix", label: "Julix", icon: "mark-julix", body: <JuliaSettings ws={ws} home={home} julia={julia} /> },
         { id: "editor", label: "Editor", icon: "file-code", body: <EditorSettingsPane settings={editor} onSettings={setEditor} lintNote="Julia's parser" /> },
         ...(ws?.kind === "hub" ? [{ id: "hub", label: "Hub", icon: "mark-malachite" as const, body: <>
