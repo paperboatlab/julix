@@ -49,9 +49,9 @@ const OWNER = (f: Folder) => `julix:${f.root}`;
 
 /** What a new session runs before it says it is ready (#43), so the first run doesn't pay Julia's compile time:
  *  JulixPlot loaded (not bound: the script's own `using` stays the one that brings its names) and a figure drawn
- *  and shown as a run's would be (2D and 3D, the figure MIME the page draws), a value shown, and then the
- *  variables listed (repr of each). Quiet: what it prints and shows goes nowhere. A folder without JulixPlot
- *  warms the rest. */
+ *  and shown as a run's would be (2D and 3D, the figure MIME the page draws), a few values shown as a run and
+ *  the variables list show them, and the folder's `cd` every run starts with; then the variables are listed.
+ *  Quiet: what it prints and shows goes nowhere. A folder without JulixPlot warms the rest. */
 export const WARMUP = `let id = Base.identify_package("JulixPlot")
   if id !== nothing
     P = Base.require(id)
@@ -68,7 +68,11 @@ export const WARMUP = `let id = Base.identify_package("JulixPlot")
     end
   end
   display([1.0 2.0; 3.0 4.0])
-end;`;
+  for v in (1, 1.5, true, "text", :a, [1.0, 2.0], [1 2; 3 4], 1:3, range(0, 1; length = 3), (1, 2), nothing)
+    repr(v; context = :limit => true); string(typeof(v)); summary(v)
+  end
+end;
+cd(joinpath(ENV["PAPERBOAT_PROJECT"], "")); nothing`;
 
 /** Code from line `line` (1-based) keeps its line numbers in tracebacks: the lines above become blank. */
 export const atLine = (code: string, line: number) => "\n".repeat(Math.max(0, line - 1)) + code;
