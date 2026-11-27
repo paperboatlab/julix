@@ -4,7 +4,7 @@ import { Key, RemoveKey, Tabs, VariableEditor, VariableList, VariableRow, type V
 import { Heatmap, Plot2D } from "@paperboatlab/ui/plot";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { api, type Figure, type Variable } from "./api.ts";
-import { FIGURE } from "./figure/Figure.tsx";
+import { FIGURE } from "./figure/mime.ts";
 
 export type FigureRef = { run: string; n: number };
 const base = (p: string) => p.slice(p.lastIndexOf("/") + 1);

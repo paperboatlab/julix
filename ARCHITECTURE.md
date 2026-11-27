@@ -37,7 +37,8 @@ flowchart LR
   a session that doesn't start says why (the page's toast offers Retry, `POST /api/session/start`), never retried
   on a loop.
   A run is a file, a cell, a line or a console expression; runs queue, run in their file's folder, keep
-  their line numbers (`atLine`), stream output, and turn every SVG or PNG display into a figure in
+  their line numbers (`atLine`), stream output (to the page as `output` events: only what is new, at most every
+  50 ms; the whole run with each change of its state), and turn every SVG or PNG display into a figure in
   `.julix/figures/<run>/` (a JulixPlot figure as `<n>.json`: the Paperboat figure MIME, its scene and
   buffers; `<n>.thumb.png` its preview, which the page sends once it has drawn the figure, since the
   runtime sends a scene and never an image). Variables are asked after each run, before the run reports
@@ -97,7 +98,8 @@ flowchart LR
   under `$XDG_CONFIG_HOME/paperboat` (as Articula's `articula.toml`), the editor settings the kit's
   `useEditorSettings` reads and writes (`GET`/`PUT /api/config`), one file for every Julix window whatever its port.
 - `server/control.ts`, `server/runtime.ts`: the protocol clients, copied from Malachite.
-- `server/main.ts`: the HTTP server: the page from `dist/`, the JSON API, Server-Sent Events. The
+- `server/main.ts`: the HTTP server: the page from `dist/` (its bundle named by content hash, kept by the browser;
+  `index.html` asked again, with an ETag), the JSON API, Server-Sent Events. The
   workspace (`{kind: "folder" | "hub", root, name, hub?}` or null) switches at runtime through `workIn`: a
   new `Folder`, a new `Sessions` (the old Julia session is released) and a new watcher; Open folder takes
   a whole path (a hub's folder opens as the hub), connect a hub's id, Close null. A file opened by its whole
@@ -120,8 +122,11 @@ flowchart LR
   names, a function, a drawing; per file, the last run's), `Console.tsx` (runs and
   the REPL line), `traceback.ts`, `Workspace.tsx` (Variables on the kit's `VariableList`, the open row plotted, Figures),
   `Keys.tsx` (the folder's Julia session as the kit's `RuntimesKey`), `api.ts` (with the session the
-  editor lints and completes through).
-- `client/figure/`: `Figure.tsx` (a figure file: a JulixPlot scene to FigureView, else its image; a figure that
+  editor lints and completes through; a completion sends the statement at the cursor, not the whole script).
+  What is typed is in `App`'s `draftRef`; the page redraws from it when the script becomes unsaved or typing
+  pauses, and the cursor reaches only the editor's footer, so a key redraws the editor alone.
+- `client/figure/`: loaded with the first figure shown (`scripts/build.ts` splits the bundle: this and three.js
+  are most of it). `Figure.tsx` (a figure file: a JulixPlot scene to FigureView, else its image; a figure that
   throws while drawn, as a 3D axis with no WebGL context does, fails in the pane with a message, the page stays),
   `FigureView.tsx` and `scene.ts` (from legacy MX: the figure's grid; 2D axes on the kit's `Plot2D`,
   colour bars, legends, TeX labels; 3D axes on the stage, their ink and grid the paper's `--paper-ink`/`--paper-grid`).

@@ -5,7 +5,9 @@ import { api, type Figure as FigureRef } from "../api.ts";
 import { FigureView } from "./FigureView.tsx";
 import { unpackScene, type FigureScene } from "./scene.ts";
 
-export const FIGURE = "application/vnd.paperboat.figure+json";
+import { FIGURE } from "./mime.ts";
+
+export { FIGURE };
 
 /** The figure file's JSON: `{scene, buffers}` (paperboat docs/runtime.md "Figures"). */
 export function readFigure(json: { scene?: Record<string, unknown>; buffers?: string }): FigureScene {

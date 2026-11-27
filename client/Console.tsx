@@ -2,7 +2,7 @@
 // and a REPL line into the same session: Enter runs, ↑ ↓ recall, Tab completes (`\pi` Tab is π, as in
 // Julia's REPL), Ctrl C interrupts. The kit's bottom Panel: hidden, it keeps its head.
 import { Panel, Spinner, readStored, writeStored } from "@paperboatlab/ui";
-import { useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { julia, type Completions } from "@paperboatlab/ui/editor";
 import { api, session, type Run } from "./api.ts";
 import { ours } from "./traceback.ts";
@@ -17,10 +17,31 @@ function What({ r }: { r: Run }) {
   return <div className="d">run {where}</div>;
 }
 
+/** One run in the console: drawn again only when it changes (new output, its state), not when another does.
+ *  `waiting`: Julia is still starting (a queued run waits for it). */
+const RunLines = memo(function RunLines({ r, waiting, onFigure }: { r: Run; waiting: boolean; onFigure: (run: string, n: number) => void }) {
+  return (
+    <div className="crun">
+      <What r={r} />
+      {r.outputs.map((o, i) => {
+        if (o.type === "stream") return <pre key={i} className={o.name === "stderr" ? "er" : ""}>{o.text}</pre>;
+        if (o.type === "result") return <pre key={i}>{o.data["text/plain"]}</pre>;
+        if (o.type === "figure") return <button key={i} type="button" className="fig" onClick={() => onFigure(r.id, o.n)}>→ figure {o.n}</button>;
+        return <div key={i}><pre className="er">{o.error.type ? `${o.error.type}: ` : ""}{o.error.message}</pre>{o.error.traceback && <pre className="tb">{ours(o.error.traceback)}</pre>}</div>;
+      })}
+      {r.state === "queued" && (waiting ? <div className="d run"><Spinner size={12} /> waiting for Julia to start…</div> : <div className="d">queued</div>)}
+      {r.state === "running" && <div className="d run"><Spinner size={12} /> running…</div>}
+    </div>
+  );
+});
+
 export function Console({ runs, running, state, hidden, onHidden, onFigure, onRun }: {
   runs: Run[]; running: boolean; state: "stopped" | "starting" | "running"; hidden: boolean; onHidden: (h: boolean) => void;
   onFigure: (run: string, n: number) => void; onRun: (code: string) => void;
 }) {
+  const fig = useRef(onFigure);
+  fig.current = onFigure;
+  const figure = useCallback((run: string, n: number) => fig.current(run, n), []);
   const [input, setInput] = useState("");
   const [hint, setHint] = useState("");
   const history = useRef<string[]>(readStored("julix.console.history", isList) ?? []);
@@ -62,19 +83,7 @@ export function Console({ runs, running, state, hidden, onHidden, onFigure, onRu
         <div className="clines">
           {runs.length === 0 && <div className="d">{state === "starting" ? "Julia is starting: F5 runs the open script, or type below; runs wait for it."
             : state === "running" ? "Julia is ready: F5 runs the open script, or type below." : "Julia starts with the first run: F5 runs the open script, or type below."}</div>}
-          {runs.map((r) => (
-            <div key={r.id} className="crun">
-              <What r={r} />
-              {r.outputs.map((o, i) => {
-                if (o.type === "stream") return <pre key={i} className={o.name === "stderr" ? "er" : ""}>{o.text}</pre>;
-                if (o.type === "result") return <pre key={i}>{o.data["text/plain"]}</pre>;
-                if (o.type === "figure") return <button key={i} type="button" className="fig" onClick={() => onFigure(r.id, o.n)}>→ figure {o.n}</button>;
-                return <div key={i}><pre className="er">{o.error.type ? `${o.error.type}: ` : ""}{o.error.message}</pre>{o.error.traceback && <pre className="tb">{ours(o.error.traceback)}</pre>}</div>;
-              })}
-              {r.state === "queued" && (state === "starting" ? <div className="d run"><Spinner size={12} /> waiting for Julia to start…</div> : <div className="d">queued</div>)}
-              {r.state === "running" && <div className="d run"><Spinner size={12} /> running…</div>}
-            </div>
-          ))}
+          {runs.map((r) => <RunLines key={r.id} r={r} waiting={state === "starting"} onFigure={figure} />)}
           <div ref={end} />
         </div>
         {hint && <div className="hint">{hint}</div>}

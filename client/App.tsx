@@ -13,16 +13,18 @@ import { AskOpen, Start, TypedPath, Unsaved, WorkspaceWell, baseName, fileMenu, 
 import { redo, undo } from "@codemirror/commands";
 import { openSearchPanel } from "@codemirror/search";
 import { EditorView } from "@codemirror/view";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, config, listen, session as juliaSession, type Breakpoint, type DebugCommand, type Entry, type Figure, type HubInfo, type Paused, type Run, type Variable, type Workspace as Place } from "./api.ts";
-import { cellAt, cells } from "./cells.ts";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { api, config, listen, session as juliaSession, type Breakpoint, type DebugCommand, type Entry, type Figure, type HubInfo, type Output, type Paused, type Run, type Variable, type Workspace as Place } from "./api.ts";
+import { cellAt, cells, type Cell } from "./cells.ts";
 import { Code } from "./Code.tsx";
 import { Console } from "./Console.tsx";
 import { JuliaRuntimes, PACKAGES } from "./Keys.tsx";
 import { Workspace, type FigureRef, type WorkspaceTab } from "./Workspace.tsx";
 import { Debug } from "./Debug.tsx";
 import { applyRun, type Result } from "./results.ts";
-import { FIGURE, Figure as FigurePane } from "./figure/Figure.tsx";
+import { FIGURE } from "./figure/mime.ts";
+// the figure code (and three.js, for 3D axes) loads with the first figure shown: most of the bundle, none of the start
+const FigurePane = lazy(() => import("./figure/Figure.tsx").then((m) => ({ default: m.Figure })));
 
 type Side = "l" | "f" | "b" | "r";
 const PANELS: { side: Side; name: string; keys: string }[] = [
@@ -78,6 +80,36 @@ const editorView = () => { const el = document.querySelector<HTMLElement>(".ed .
 const inside = (root: string, abs: string) => (abs.startsWith(`${root}/`) ? abs.slice(root.length + 1) : null);
 const NEW_SCRIPT = "# A Julia script. F5 runs it; Ctrl Enter runs the cell at the cursor (a cell starts at ##).\n\n## First cell\n";
 
+/** A run's outputs with the new ones after them: a stream goes on in the last one of its name, as the server keeps them. */
+function appended(outputs: Output[], more: Output[]): Output[] {
+  const out = [...outputs];
+  for (const o of more) {
+    const last = out.at(-1);
+    if (o.type === "stream" && last?.type === "stream" && last.name === o.name) out[out.length - 1] = { ...last, text: last.text + o.text };
+    else out.push(o);
+  }
+  return out;
+}
+
+/** A value a few parts of the page read (useSyncExternalStore), set without redrawing the rest. */
+function store<T extends Record<string, unknown>>(first: T) {
+  let v = first;
+  const subs = new Set<() => void>();
+  return {
+    get: () => v,
+    set: (n: T) => { if (Object.keys(n).every((k) => n[k] === v[k])) return; v = n; for (const f of subs) f(); },
+    sub: (f: () => void) => { subs.add(f); return () => { subs.delete(f); }; },
+  };
+}
+type Cursor = ReturnType<typeof store<{ line: number; col: number }>>;
+
+/** The editor footer's place: line, column and the cell at the cursor (of `cells`, as drawn). */
+function Where({ cursor, cells }: { cursor: Cursor; cells: Cell[] }) {
+  const { line, col } = useSyncExternalStore(cursor.sub, cursor.get);
+  const at = cells.findIndex((c) => line >= c.from && line <= c.to);
+  return <span>Ln {line}, Col {col}{cells.length > 1 && at >= 0 ? ` · cell ${at + 1} of ${cells.length}` : ""}</span>;
+}
+
 /** Seconds since a run started, ticking on its own so the whole page doesn't redraw. */
 function Elapsed({ since }: { since?: string }) {
   const [, tick] = useState(0);
@@ -118,8 +150,23 @@ export function App() {
   const [pinned, setPinned] = useState<Set<string>>(() => new Set(readStored("julix.pinned", isList) ?? []));
   const [bpAt, setBpAt] = useState<{ path: string; line: number; x: number; y: number } | null>(null);   // the breakpoint gutter's right-click menu
   const [doc, setDoc] = useState<Doc | null>(null);
+  // what is typed and not yet saved: `draftRef` has it as typed; `draft`, what the page draws from it (the tab's
+  // dot, the cell count), follows at once when the script becomes or stops being unsaved, else when typing pauses,
+  // so a key redraws the editor and not the whole window
+  const draftRef = useRef<string | null>(null);
   const [draft, setDraft] = useState<string | null>(null);
-  const [cursor, setCursor] = useState({ line: 1, col: 1 });
+  const typedAt = useRef(0), drawn = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const putDraft = useCallback((t: string | null) => { clearTimeout(drawn.current); draftRef.current = t; setDraft(t); }, []);
+  const edited = useCallback((t: string) => {
+    typedAt.current = Date.now();
+    const was = draftRef.current;
+    draftRef.current = t;
+    clearTimeout(drawn.current);
+    if (was === null) setDraft(t);
+    else drawn.current = setTimeout(() => setDraft(draftRef.current), 300);
+  }, []);
+  // the cursor, for the editor's footer only (its own store: a cursor move redraws the footer)
+  const cursor = useMemo(() => store({ line: 1, col: 1 }), []);
   const [hidden, setHidden] = useState<Record<Side, boolean>>(() => readStored("julix.panels", isHidden) ?? { l: false, f: false, b: false, r: false });
   const [runs, setRuns] = useState<Run[]>([]);
   const [session, setSession] = useState<"stopped" | "starting" | "running">("stopped");
@@ -209,17 +256,25 @@ export function App() {
 
   const load = useCallback((p: string | null) => {
     if (!p) { setDoc(null); return; }
-    api.file(p).then((d) => { if (currentRef.current === p) { setDoc({ ...d, v: ++copies.current }); setDraft(null); } }, (e) => { setDoc(null); fail(e); });
+    api.file(p).then((d) => { if (currentRef.current === p) { setDoc({ ...d, v: ++copies.current }); putDraft(null); } }, (e) => { setDoc(null); fail(e); });
     if (!p.startsWith("@")) api.opened(p).catch(() => {});   // first in recent.json
-  }, [fail]);
+  }, [fail, putDraft]);
   useEffect(() => { if (ws) load(current); }, [ws, current, load]);
+  /** The open script changed on disk: read again, and drawn again only when it differs from what the editor shows
+   *  (our own save comes back as a change: the editor stays as it is, its undo and cursor too). */
+  const reread = useCallback((p: string) => {
+    api.file(p).then((d) => {
+      if (currentRef.current !== p || draftRef.current !== null) return;
+      setDoc((o) => (o && o.path === p && o.text === d.text ? o : { ...d, v: ++copies.current }));
+    }, () => {});
+  }, []);
 
   // live: files (anyone's changes), runs, the variables, the session
   useEffect(() => listen((e) => {
     if (e.type === "files") {
       reload();
       const c = currentRef.current;
-      if (c && (e.changed as string[]).includes(c)) setDraft((d) => { if (d === null) load(c); return d; });
+      if (c && (e.changed as string[]).includes(c) && draftRef.current === null) reread(c);
     } else if (e.type === "run") {
       const r = e.run as Run;
       setRuns((rs) => { const i = rs.findIndex((x) => x.id === r.id); return i < 0 ? [...rs, r].slice(-300) : rs.map((x, j) => (j === i ? r : x)); });
@@ -229,6 +284,8 @@ export function App() {
         setResults((m) => applyRun(m, r));
         if (figs.length) { reloadFigures(); setShown({ run: r.id, n: (figs.at(-1) as { n: number }).n }); setHidden((h) => (h.f ? { ...h, f: false } : h)); }
       }
+    } else if (e.type === "output") {   // what a run printed or showed since the last: added to the run's outputs
+      setRuns((rs) => rs.map((x) => (x.id === e.run ? { ...x, outputs: appended(x.outputs, e.outputs as Output[]) } : x)));
     } else if (e.type === "variables") setVariables(e.variables);
     else if (e.type === "figures") reloadFigures();
     else if (e.type === "debug") stopped(e.paused as Paused | null);
@@ -246,7 +303,7 @@ export function App() {
       else if (e.state === "stopped" && e.error) { notStarted(e.error, starting.current); starting.current = null; }
       else if (starting.current !== null) { show({ id: starting.current, title: "Julia stopped", state: "done" }); starting.current = null; }
     }
-  }), [reload, reloadFigures, load, show, notStarted]);
+  }), [reload, reloadFigures, reread, show, notStarted]);
 
   const running = runs.some((r) => r.state === "running" || r.state === "queued");
   const now = runs.find((r) => r.state === "running");   // the run the session is on; queued ones wait behind it
@@ -271,7 +328,7 @@ export function App() {
     if (ro) { show({ title: `${base(p)} is an example`, detail: "Copy it (the banner above) to change it", state: "failed" }); return false; }
     const id = unsaved.current.get(p);
     try {
-      await api.save(p, text); setDraft((d) => (d === text ? null : d)); setDoc((d) => (d && d.path === p ? { ...d, text } : d));
+      await api.save(p, text); if (draftRef.current === text) putDraft(null); setDoc((d) => (d && d.path === p ? { ...d, text } : d));
       if (id !== undefined) { unsaved.current.delete(p); show({ id, title: `${base(p)} saved`, state: "done" }); }
       return true;
     } catch (e) {
@@ -279,7 +336,7 @@ export function App() {
       unsaved.current.set(p, show({ id, title: `Couldn't save ${base(p)}`, detail: `${(e as Error).message ?? e} · the text stays in the editor`, state: "failed" }));
       return false;
     }
-  }, [show, ro]);
+  }, [show, ro, putDraft]);
   // only the shown tab can be unsaved (the rest were saved as they were left): before it closes, alone or with
   // its folder or hub, Unsaved asks: Save, Don't save, Cancel
   const dirty = !!current && draft !== null;
@@ -340,16 +397,18 @@ export function App() {
     else if (e.kind === "hub" && e.hub && hubs.some((h) => h.id === e.hub)) toHub(e.hub);   // by its id: a moved hub is found
     else switchTo({ name: baseName(e.path), path: e.path }, () => api.workIn({ kind: "folder", path: e.path }));   // the server knows a hub's folder
   };
-  const recentItems = recentMenu(recentFor({ version: 1, recent }, "julix", { hubs: hubs.length > 0 }), openRecent,
-    () => { api.clearRecent().then(() => setRecent([]), fail); });
+  const openRecentRef = useRef(openRecent);
+  openRecentRef.current = openRecent;
+  const recentItems = useMemo(() => recentMenu(recentFor({ version: 1, recent }, "julix", { hubs: hubs.length > 0 }), (e) => openRecentRef.current(e),
+    () => { api.clearRecent().then(() => setRecent([]), fail); }), [recent, hubs.length, fail]);
   const hub = ws?.kind === "hub" ? hubs.find((h) => h.id === ws.hub) : undefined;
   // the hub's picker needs the hub: before the list is read, what the workspace says of it
   const pickHub: Hub = hub ? kitHub(hub) : { id: ws?.hub ?? "", name: ws?.name ?? "", place: "local", path: ws ? tilde(ws.root, home) : "" };
-  const saveNow = () => { if (current && dirty) save(current, draft!); };
+  const saveNow = () => { if (current && draftRef.current !== null) save(current, draftRef.current); };
   // Save as…: in a hub, our picker over it; in a Paperboat window, the system's dialog; in a browser, a download
   const saveAs = () => {
     if (!current) return;
-    const body = draft ?? doc?.text ?? "";
+    const body = draftRef.current ?? doc?.text ?? "";
     if (ws?.kind === "hub") return setDialog("save");
     if (sh) {
       sh.pickSave(base(current), TYPES, "Save as").then((p) => {
@@ -364,24 +423,33 @@ export function App() {
     a.href = URL.createObjectURL(new Blob([body], { type: "text/plain" })); a.download = base(current); a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   };
-  // save what is typed after a pause; the file is the record
+  // save what is typed after a pause (700 ms after the last key); the file is the record
+  const autosave = useRef<ReturnType<typeof setTimeout>>(undefined);
   useEffect(() => {
     if (draft === null || !current || closing) return;   // not while Unsaved asks
-    const t = setTimeout(() => save(current, draft), 700);
-    return () => clearTimeout(t);
+    const tick = () => {
+      const idle = Date.now() - typedAt.current;
+      if (idle < 700) { autosave.current = setTimeout(tick, 700 - idle); return; }
+      if (draftRef.current !== null) save(current, draftRef.current);
+    };
+    autosave.current = setTimeout(tick, 700);
+    return () => clearTimeout(autosave.current);
   }, [draft, current, doc, save, closing]);
 
-  const text = draft ?? doc?.text ?? "";
+  /** The script's text now (what is typed, else what was read). */
+  const textNow = () => draftRef.current ?? doc?.text ?? "";
+  const text = draft ?? doc?.text ?? "";   // as drawn: it follows typing once it pauses
   const debugging = runs.some((r) => r.debug && (r.state === "running" || r.state === "queued"));
   const command = useCallback((c: DebugCommand) => { api.debug(c).catch(fail); }, [fail]);
   const run = useCallback((kind: "file" | "cell" | "line", code?: string, line = 1, debug = false) => {
     if (kind === "file" && paused && !debug) return command("continue");   // F5 while a debug run waits goes on
     if (!current || typeOf(current) !== "jl") return;   // as the Run key: off, and its hover says why
-    if (draft !== null) save(current, draft);
+    const now = draftRef.current ?? doc?.text ?? "";
+    if (draftRef.current !== null) save(current, draftRef.current);
     const dbg = debug ? { debug: true, breakpoints: bps[current] ?? [] } : {};
-    api.run(kind, kind === "file" ? { path: current, code: text, ...dbg } : { path: current, code, line, ...dbg }).catch(fail);
+    api.run(kind, kind === "file" ? { path: current, code: now, ...dbg } : { path: current, code, line, ...dbg }).catch(fail);
     setHidden((h) => (h.b ? { ...h, b: false } : h));
-  }, [current, draft, doc, text, save, show, fail, paused, command, bps]);
+  }, [current, doc, save, show, fail, paused, command, bps]);
   const setBreakpoints = useCallback((path: string, list: Breakpoint[]) => {
     setBps((m) => { const n = { ...m, [path]: list }; if (!list.length) delete n[path]; return n; });
     if (debugging) api.setBreakpoints(path, list).catch(() => {});   // the run that's going takes them at once
@@ -406,7 +474,7 @@ export function App() {
           { id: "bp-addc", label: "Add conditional breakpoint…", run: condition }];
   };
   const runConsole = useCallback((code: string) => { api.run("console", { code }).catch(fail); }, [fail]);
-  const runCellAtCursor = () => { const c = cellAt(text, cursor.line); if (c) run("cell", c.code, c.cell.from); };
+  const runCellAtCursor = () => { const c = cellAt(textNow(), cursor.get().line); if (c) run("cell", c.code, c.cell.from); };
 
   // New script: in the workspace, a name; with none, where it goes (the system's dialog, or a typed path)
   const newScript = (dir = current && !current.startsWith("@") ? dirOf(current) : "") => {
@@ -551,7 +619,7 @@ export function App() {
   }), []);
 
   const isJl = !!current && typeOf(current) === "jl";
-  const at = isJl ? cellAt(text, cursor.line) : null, nCells = isJl ? cells(text).length : 0;
+  const scriptCells = useMemo(() => (isJl ? cells(text) : []), [isJl, text]);
   const shownFig = shown && figures.find((f) => f.run === shown.run && f.n === shown.n);
   const julia = runs.findLast((r) => r.runtime)?.runtime;
 
@@ -613,16 +681,16 @@ export function App() {
                   {!ro && <span><Key kind="primary" icon="new-file" onClick={() => newScript("")}>New script</Key></span>}</div></div>}
                 {doc && doc.path === current && (IMAGE.has(typeOf(doc.path))
                   ? <p className="empty-state">An image: Julix edits scripts and text.</p>
-                  : <Code key={`${doc.path}:${doc.v}`} path={doc.path} text={text} onChange={setDraft}
-                      onPos={(p: EditorPos) => setCursor({ line: p.line, col: p.col })} busy={busy?.path === doc.path ? busy : undefined} settings={editor}
+                  : <Code key={`${doc.path}:${doc.v}`} path={doc.path} text={textNow()} onChange={edited}
+                      onPos={(p: EditorPos) => cursor.set({ line: p.line, col: p.col })} busy={busy?.path === doc.path ? busy : undefined} settings={editor}
                       breakpoints={bps[doc.path]} onBreakpoint={(l) => toggleBreakpoint(doc.path, l)}
                       onBreakpointMenu={(line, x, y) => setBpAt({ path: doc.path, line, x, y })} stopAt={paused?.source === doc.path ? paused.line : undefined}
                       results={results[doc.path]} variables={variables} onFigure={(run, n) => { setShown({ run, n }); toggle("f", false); }} appTheme={appTheme}
                       session={session === "running" ? juliaSession : undefined} readOnly={ro}
-                      run={{ cell: (c, l) => run("cell", c, l), line: (c, l) => run("line", c, l), file: () => run("file"), save: () => draft !== null && current && save(current, draft) }} />)}
+                      run={{ cell: (c, l) => run("cell", c, l), line: (c, l) => run("line", c, l), file: () => run("file"), save: () => draftRef.current !== null && current && save(current, draftRef.current) }} />)}
               </div>
               {doc && isJl && (
-                <div className="efoot"><span>Ln {cursor.line}, Col {cursor.col}{nCells > 1 && at ? ` · cell ${at.index + 1} of ${nCells}` : ""}</span>
+                <div className="efoot"><Where cursor={cursor} cells={scriptCells} />
                   <span className="efoot-keys"><span><kbd className="kbd">Ctrl Enter</kbd> cell</span><span><kbd className="kbd">Shift Enter</kbd> line</span><span><kbd className="kbd">F5</kbd> file</span></span></div>
               )}
             </section>
@@ -632,7 +700,7 @@ export function App() {
                 ? <Key size="sm" kind="quiet" onClick={() => setResetSeq((n) => n + 1)} title="Back to the scripted view">Reset view</Key>
                 : <a className="key sm quiet" href={api.figure(shownFig)} download={`${base(shownFig.source).replace(/\.jl$/, "")}-figure-${shownFig.n}.${shownFig.mime === "image/png" ? "png" : "svg"}`} title="Save the figure">Export…</a>)}>
               <div className="fbody">{shownFig
-                ? <FigurePane f={shownFig} label={`Figure ${shownFig.n} of ${base(shownFig.source)}`} resetSeq={resetSeq} />
+                ? <Suspense fallback={<p className="empty-state"><Spinner size={12} /> Drawing the figure…</p>}><FigurePane f={shownFig} label={`Figure ${shownFig.n} of ${base(shownFig.source)}`} resetSeq={resetSeq} /></Suspense>
                 : <p className="empty-state">No figure yet. A JulixPlot figure appears here to pan, zoom and orbit; anything else your code shows as SVG or PNG appears as an image.</p>}</div>
             </Panel>
           </Split>
@@ -678,14 +746,14 @@ export function App() {
         describe={(e) => { const f = entryAt(tree.files, e.path); return f && <dl className="facts">{f.mtime && <><dt>changed</dt><dd>{day(f.mtime)}</dd></>}{f.size !== undefined && <><dt>size</dt><dd>{size(f.size)}</dd></>}</dl>; }}
         onOpen={(p) => { setDialog(null); open(p); }} />}
       {dialog === "save" && current && <SaveFile what={base(current)} types={TYPES} name={base(current).replace(/(\.\w+)?$/, "-v2$1")} hub={pickHub} list={async () => rows(tree.files)} onClose={() => setDialog(null)}
-        onSave={(p) => { setDialog(null); api.save(p, draft ?? doc?.text ?? "").then(() => { reload(); open(p); }, fail); }} />}
+        onSave={(p) => { setDialog(null); api.save(p, textNow()).then(() => { reload(); open(p); }, fail); }} />}
       {dialog === "folder" && <TypedPath title="Open folder" onClose={() => setDialog(null)}
         onOpen={(p) => { setDialog(null); switchTo({ name: baseName(p), path: p }, () => api.workIn({ kind: "folder", path: p })); }} />}
       {dialog === "copy" && <TypedPath title="Copy the example to" onClose={() => setDialog(null)} onOpen={(p) => { setDialog(null); copyTo(p); }} />}
       {dialog === "file" && <TypedPath title="Open a local file" what="file" onClose={() => setDialog(null)} onOpen={(p) => { setDialog(null); openAbs(p); }} />}
       {closing && current && <Unsaved name={base(current)} closing={closing.what} onClose={() => setClosing(null)}
-        onSave={() => { const then = closing.then; setClosing(null); save(current, draft!).then((ok) => ok && then()); }}
-        onDiscard={() => { const then = closing.then; setClosing(null); setDraft(null); then(); }} />}
+        onSave={() => { const then = closing.then; setClosing(null); save(current, textNow()).then((ok) => ok && then()); }}
+        onDiscard={() => { const then = closing.then; setClosing(null); putDraft(null); then(); }} />}
       {dialog === "help" && <HelpWindow app="Julix" provider={help} commands={commands} onClose={() => setDialog(null)} />}
       {dialog === "about" && <AboutJulix version={info?.version ?? ""} julia={julia} onClose={() => setDialog(null)} />}
       <Toasts toasts={toasts} onDismiss={dismiss} />

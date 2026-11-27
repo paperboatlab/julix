@@ -5,6 +5,11 @@
 export type Cell = { from: number; to: number; title: string };
 
 export const isHead = (line: string) => /^##(\s|$)/.test(line);
+/** Whether lines `from`…`to` hold code: a line that isn't blank or a head (`line(n)`: line n's text). */
+const holds = (line: (n: number) => string, from: number, to: number) => {
+  for (let n = from; n <= to; n++) { const l = line(n); if (l.trim() && !isHead(l)) return true; }
+  return false;
+};
 
 export function cells(text: string): Cell[] {
   const lines = text.split("\n"), out: Cell[] = [];
@@ -16,7 +21,8 @@ export function cells(text: string): Cell[] {
     title = l.slice(2).trim();
   });
   out.push({ from, to: lines.length, title });
-  return out.filter((c) => lines.slice(c.from - 1, c.to).some((l) => l.trim() && !isHead(l)) || c.title);
+  const line = (n: number) => lines[n - 1];
+  return out.filter((c) => c.title || holds(line, c.from, c.to));
 }
 
 /** The cell holding `line`, and its code. */
@@ -25,4 +31,15 @@ export function cellAt(text: string, line: number): { cell: Cell; index: number;
   if (index < 0) return null;
   const cell = all[index];
   return { cell, index, code: text.split("\n").slice(cell.from - 1, cell.to).join("\n") };
+}
+
+/** The cell holding `at` (as cellAt's), read line by line (`line(n)`, `count` lines) from `at` out to its heads, not
+ *  the whole text: the editor asks on every key. Null when the text has no `##` line, as for a cell cellAt drops. */
+export function cellAround(line: (n: number) => string, count: number, at: number): Cell | null {
+  let from = at, to = at;
+  while (from > 1 && !isHead(line(from))) from--;
+  while (to < count && !isHead(line(to + 1))) to++;
+  if (from === 1 && to === count && !isHead(line(1))) return null;   // no head anywhere: no cells to draw
+  const title = isHead(line(from)) ? line(from).slice(2).trim() : "";
+  return title || holds(line, from, to) ? { from, to, title } : null;
 }
