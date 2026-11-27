@@ -67,7 +67,11 @@ once, there is no Save.
   other package is added and removed in Paperboat Launcher › **Runtimes** › **julia** › **Packages**, the
   one package manager for Julia (choose the folder there as the project).
 - **Editor**: the code's colours, font, size and line height; tab size, wrapping, autocomplete, closing
-  brackets and lint (Julia's parser).
+  brackets and lint (Julia's parser); and the **Keys**: Standard, Vim or Helix. Vim and Helix show their
+  mode and the ``:`` line under the code, ``:w`` saves, and Julix's own keys (:kbd:`Ctrl Enter`,
+  :kbd:`Shift Enter`, :kbd:`F5`, :kbd:`F1`…) still work in every mode. They are kept in ``julix.toml``
+  (``~/.config/paperboat/``), so every Julix window has them; edit it by hand and Julix reads it again when
+  its window regains focus.
 - **Hub**, while Julix works in a hub: its name and folder, **Switch hub…** and **Close hub**. The hub's
   own settings (its author, how long it keeps versions) are set in Malachite.
 - **Shortcuts**: every key Julix answers, by menu. **Help › Keyboard shortcuts** (:kbd:`Ctrl /`) opens

@@ -216,6 +216,8 @@ export function Code({ path, text, onChange, onPos, run, busy, results, variable
 }) {
   const r = useRef(run);
   r.current = run;
+  const helix = useRef(false);
+  helix.current = settings.keymap === "helix";
   const keys = useMemo<KeyBinding[]>(() => [
     { key: "Mod-Enter", preventDefault: true, run: (v) => {
       const c = cellAt(v.state.doc.toString(), v.state.doc.lineAt(v.state.selection.main.head).number);
@@ -224,7 +226,8 @@ export function Code({ path, text, onChange, onPos, run, busy, results, variable
     } },
     { key: "Shift-Enter", preventDefault: true, run: (v) => {
       const s = v.state.selection.main;
-      if (!s.empty) { r.current.line(v.state.sliceDoc(s.from, s.to), v.state.doc.lineAt(s.from).number); return true; }
+      // Helix always selects the character under the cursor: there, one character is the cursor's line
+      if (s.to - s.from > (helix.current ? 1 : 0)) { r.current.line(v.state.sliceDoc(s.from, s.to), v.state.doc.lineAt(s.from).number); return true; }
       const l = v.state.doc.lineAt(s.head);
       r.current.line(l.text, l.number);
       if (l.number < v.state.doc.lines) v.dispatch({ selection: { anchor: v.state.doc.line(l.number + 1).from } });   // on to the next line, as a REPL user expects

@@ -14,7 +14,7 @@ import { redo, undo } from "@codemirror/commands";
 import { openSearchPanel } from "@codemirror/search";
 import { EditorView } from "@codemirror/view";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { api, listen, session as juliaSession, type Breakpoint, type DebugCommand, type Entry, type Figure, type HubInfo, type Paused, type Run, type Variable, type Workspace as Place } from "./api.ts";
+import { api, config, listen, session as juliaSession, type Breakpoint, type DebugCommand, type Entry, type Figure, type HubInfo, type Paused, type Run, type Variable, type Workspace as Place } from "./api.ts";
 import { cellAt, cells } from "./cells.ts";
 import { Code } from "./Code.tsx";
 import { Console } from "./Console.tsx";
@@ -92,7 +92,9 @@ export function App() {
   const [scale, setScaleHere] = useState<Scale>(() => readStored("paperboat.scale", isScale) ?? 1);
   const setScale = useCallback((s: Scale) => { setScaleHere(s); api.setScale(s).catch(() => {}); }, []);
   useScale(scale);
-  const [editor, setEditor] = useEditorSettings(undefined, "julix.editor");   // ponytail: in localStorage until Julix keeps a settings file
+  // the editor settings (theme, font, keys: Standard, Vim or Helix) in julix.toml, so every Julix window has them
+  // whatever its port; this browser's copy (julix.editor) paints the first frame and seeds a first file
+  const [editor, setEditor, editorFile] = useEditorSettings(config, "julix.editor");
   // what Julix works in: a folder, a hub, or nothing (the Start page); undefined till the server says
   const [info, setInfo] = useState<{ workspace: Place | null; home: string; version: string }>();
   const ws = info?.workspace ?? null;
@@ -624,7 +626,7 @@ export function App() {
       {dialog === "settings" && <Settings app="Julix" page={settingsPage} onClose={() => setDialog(null)} pages={[
         { id: "general", label: "General", icon: "a-settings", body: <><ThemeSetting theme={theme} onTheme={setTheme} /><ScaleSetting scale={scale} onScale={setScale} /></> },
         { id: "julix", label: "Julix", icon: "mark-julix", body: <JuliaSettings ws={ws} home={home} julia={julia} /> },
-        { id: "editor", label: "Editor", icon: "file-code", body: <EditorSettingsPane settings={editor} onSettings={setEditor} lintNote="Julia's parser" /> },
+        { id: "editor", label: "Editor", icon: "file-code", body: <EditorSettingsPane settings={editor} onSettings={setEditor} lintNote="Julia's parser" file={editorFile} /> },
         ...(ws?.kind === "hub" ? [{ id: "hub", label: "Hub", icon: "mark-malachite" as const, body: <>
           <SettingsSection title="The hub">
             <SettingRow label="Name" hint="Julix keeps its scripts, data and figures here">

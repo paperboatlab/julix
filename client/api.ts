@@ -1,6 +1,6 @@
 // The app server's API (server/main.ts), typed for the page.
 import type { Example } from "@paperboatlab/ui";
-import type { Session } from "@paperboatlab/ui/editor";
+import type { ConfigStore, Session } from "@paperboatlab/ui/editor";
 export type Entry = { path: string; name: string; kind: "dir" | "file"; size?: number; mtime?: number; children?: Entry[] };
 export type Kind = "file" | "cell" | "line" | "console";
 export type Output =
@@ -58,6 +58,9 @@ export const api = {
   settings: () => call<{ theme: Theme; scale: Scale }>("GET", "/api/settings"),
   setTheme: (theme: Theme) => call("PUT", "/api/settings", { theme }),
   setScale: (scale: Scale) => call("PUT", "/api/settings", { scale }),
+  /** julix.toml, the editor settings file: its path as shown and its text (null while there is none). */
+  config: () => call<{ path: string; text: string | null }>("GET", "/api/config"),
+  setConfig: (text: string) => call("PUT", "/api/config", { text }),
   hubs: () => call<HubInfo[]>("GET", "/api/hubs"),
   hubNew: (name: string) => call<Workspace>("POST", "/api/hubs/new", { name }),
   hubInMalachite: (id: string) => call("POST", "/api/hubs/malachite", { id }),
@@ -109,6 +112,9 @@ export function listen(on: (e: any) => void): () => void {
 
 /** The Julia session as the kit's editor and languages speak to it (paperboat-runtime/0 `lint`, `complete`),
  *  through the server. Pass it only while a session runs: without one the server has no answer. */
+/** julix.toml as the kit's editor settings read and write it (useEditorSettings). */
+export const config: ConfigStore = { read: () => api.config(), write: (text) => api.setConfig(text).then(() => undefined) };
+
 export const session: Session = {
   request: async (op, args) => {
     const r = await call<{ result: unknown }>("POST", "/api/session", { op, args });
