@@ -55,7 +55,7 @@ esac
     assert.deepEqual(fs.readFileSync(seen, "utf8").trim().split("\n"), [
       "example list --app julix --json", "example open julix/01-matrices --json", "example open julix/nope --json",
       `example copy julix/01-matrices --to ${work} --open --json`, "example copy julix/01-matrices --to /there --open --json",
-      "hub list --json", `example open julix/01-matrices --to ${work} --json`,
+      `example open julix/01-matrices --to ${work} --json`,   // a plain folder opens without asking for the hubs
       "example open julix/01-matrices --to /there --json", "example open julix/01-matrices --json",
     ]);
     // read once, as the server starts (the examples' folders are the read-only ones, server/examples.ts)
