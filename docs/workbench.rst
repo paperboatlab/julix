@@ -60,8 +60,8 @@ Settings
 **File › Settings…** (:kbd:`Ctrl ,`) opens one window with its pages on the left; a change applies at
 once, there is no Save.
 
-- **General**: the theme, Light, Dark or System (it follows the computer). It applies to every Paperboat
-  app; **View › Theme** lists the same three.
+- **General**: the theme, Light, Dark or System (it follows the computer), and the interface scale, Compact (75 %), Default or Large (125 %), which sizes text, icons and keys alike. Both
+  apply to every Paperboat app; **View › Theme** lists the same three themes.
 - **Julix**: the Julia it runs on (Paperboat's Julia runtime; a session starts for each folder) and the
   project, which is the folder itself. Julix adds JulixPlot to it before the folder's first session; every
   other package is added and removed in Paperboat Launcher › **Runtimes** › **julia** › **Packages**, the
