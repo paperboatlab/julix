@@ -1,7 +1,8 @@
 // Code runs in one Julia session lease for the workspace (paperboat-runtime/0 session mode: a live
 // namespace, as a REPL is). Julix runs no code itself: it asks paperboatd for the lease and speaks the
 // protocol. A run is a file, a cell, a line or an expression; what it displays as an image becomes a
-// figure, kept in `.julix/figures/<run>/` with the run's record beside it.
+// figure, kept in `.julix/figures/<run>/` with the run's record beside it. An example (read-only, server/examples.ts)
+// is run as it is in a scratch copy, so what its code writes (`out/`) never lands in it; its figures go to scratch too.
 import fs from "node:fs";
 import path from "node:path";
 import { Control, type Lease } from "./control.ts";
@@ -49,9 +50,14 @@ const OWNER = (f: Folder) => `julix:${f.root}`;
 /** Code from line `line` (1-based) keeps its line numbers in tracebacks: the lines above become blank. */
 export const atLine = (code: string, line: number) => "\n".repeat(Math.max(0, line - 1)) + code;
 
-/** The folder a run's code starts in: its file's folder in the workspace (the lease mounts the workspace). */
-function chdir(dir: string): string {
-  return `cd(joinpath(ENV["PAPERBOAT_PROJECT"], ${JSON.stringify(dir).replaceAll("$", "\\$")})); nothing`;
+/** The folder a run's code starts in: its file's folder in the workspace (the lease mounts the workspace). An
+ *  example's (`scratch`): the same folder in a copy of it the session makes once, in its own temp folder (a tmpfs
+ *  in a container), so what the code writes beside itself stays out of the example and goes with the session. */
+export function chdir(dir: string, scratch = false): string {
+  const base = scratch
+    ? 'get!(ENV, "JULIX_SCRATCH") do; d = joinpath(mktempdir(), basename(ENV["PAPERBOAT_PROJECT"])); cp(ENV["PAPERBOAT_PROJECT"], d); d; end'
+    : 'ENV["PAPERBOAT_PROJECT"]';
+  return `cd(joinpath(${base}, ${JSON.stringify(dir).replaceAll("$", "\\$")})); nothing`;
 }
 
 let seq = 0;
@@ -93,9 +99,11 @@ export class Sessions {
     this.session ??= (async () => {
       this.set("starting");
       // the folder's packages before the first session (server/packages.ts): JulixPlot added when the project
-      // doesn't list it, else what the Manifest records and the deps volume lacks instantiated
+      // doesn't list it (never to an example's: it runs as it is, with the packages it lists), else what the
+      // Manifest records and the deps volume lacks instantiated (an example's too: into the deps volume, the
+      // project read-only)
       const root = this.folder.root, step = (detail: string) => this.emit({ type: "session", state: "starting", detail });
-      if (!hasJulixPlot(root)) { step("Adding JulixPlot"); await addJulixPlot(this.control, this.folder, step); }
+      if (!this.folder.readOnly && !hasJulixPlot(root)) { step("Adding JulixPlot"); await addJulixPlot(this.control, this.folder, step); }
       else {
         const lacking = missing(root, await depsVolume(this.control, root));
         if (lacking.length) {
@@ -132,7 +140,7 @@ export class Sessions {
     this.emit({ type: "variables", variables: [] });
   }
 
-  figuresDir(run?: string) { return path.join(this.folder.root, ".julix", "figures", ...(run ? [run] : [])); }
+  figuresDir(run?: string) { return path.join(this.folder.data, "figures", ...(run ? [run] : [])); }
 
   /** Runs `code` from `source` (a workspace path, or "console") at `line`; runs go one after another. */
   run(kind: Kind, source: string, code: string, line = 1, debug?: { breakpoints: Breakpoint[] }): Run {
@@ -160,7 +168,7 @@ export class Sessions {
       try {
         const s = await this.open();
         const dir = source === "console" ? "" : path.posix.dirname(source) === "." ? "" : path.posix.dirname(source);
-        if (s.cwd !== dir) { await s.rt.request("eval", { code: chdir(dir), cell: "julix: the script's folder" }); s.cwd = dir; }
+        if (s.cwd !== dir) { await s.rt.request("eval", { code: chdir(dir, this.folder.readOnly), cell: "julix: the script's folder" }); s.cwd = dir; }
         run.runtime = { name: s.rt.hello!.runtime.name, version: s.rt.hello!.runtime.version, backend: s.lease.backend };
         const args = { code: atLine(code, line), cell: source, ...(debug ? { debug: true, breakpoints: debug.breakpoints } : {}) };
         const result = await s.rt.request<{ data: Record<string, string> | null; stopped?: boolean }>("eval", args, (note) => {

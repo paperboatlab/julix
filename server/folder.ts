@@ -1,6 +1,8 @@
 // The workspace: the folder Julix opens. The files are the record; `.julix/` holds what Julix keeps
 // (figures, the trash) and can be deleted. Every path from the page goes through `resolve`, which keeps
 // it inside the folder. The examples are not here: they open from Ctrl K (server/hubs.ts, `paperboat example`).
+// An example opened in place is read-only (server/examples.ts): `locked` says which paths are an example's, and
+// every write there is refused; what Julix keeps for it (figures) goes to `data`, a scratch folder outside it.
 import fs from "node:fs";
 import path from "node:path";
 
@@ -32,17 +34,36 @@ function walk(root: string, dir: string): Entry[] {
   return out.sort((a, b) => (a.kind === b.kind ? a.name.localeCompare(b.name, undefined, { numeric: true }) : a.kind === "dir" ? -1 : 1));
 }
 
+/** A write refused: the path is an example's (copy it to change it). */
+export const EXAMPLE_LOCKED = "is an example and can't be changed: copy it (the banner's Copy) to change it";
+
 export class Folder {
   readonly root: string;
   readonly name: string;
+  /** The whole folder is an example's: nothing in it is written. */
+  readonly readOnly: boolean;
+  /** Where Julix keeps what it makes (figures, the trash): `.julix/`, or a scratch folder for an example. */
+  readonly data: string;
+  private locked: (abs: string) => boolean;
 
-  constructor(root: string) {
+  /** `locked`: whether an absolute path is an example's (none: nothing is); `scratch`: an example's data folder. */
+  constructor(root: string, opts: { locked?: (abs: string) => boolean; scratch?: (root: string) => string } = {}) {
     this.root = fs.realpathSync(root);
     this.name = path.basename(this.root);
+    this.locked = opts.locked ?? (() => false);
+    this.readOnly = this.locked(this.root);
+    this.data = this.readOnly && opts.scratch ? opts.scratch(this.root) : path.join(this.root, ".julix");
   }
 
   /** The absolute path of a workspace path. */
   resolve(rel: string): string { return inside(this.root, rel); }
+
+  /** The absolute path of a workspace path to write: refused (403) when it is an example's. */
+  writable(rel: string): string {
+    const abs = this.resolve(rel);
+    if (this.readOnly || this.locked(abs)) throw new FolderError(`${rel || this.name} ${EXAMPLE_LOCKED}`, 403);
+    return abs;
+  }
 
   tree(): Entry[] { return walk(this.root, this.root); }
 
@@ -54,7 +75,7 @@ export class Folder {
 
   /** Writes a file whole (atomic: a reader never sees half of it). */
   write(rel: string, text: string) {
-    const abs = this.resolve(rel);
+    const abs = this.writable(rel);
     fs.mkdirSync(path.dirname(abs), { recursive: true });
     const tmp = `${abs}.${process.pid}.tmp`;
     fs.writeFileSync(tmp, text);
@@ -65,17 +86,17 @@ export class Folder {
   create(rel: string, text = ""): string {
     const ext = path.posix.extname(rel), base = rel.slice(0, rel.length - ext.length);
     let p = rel;
-    for (let n = 2; fs.existsSync(this.resolve(p)); n++) p = `${base}-${n}${ext}`;
-    const abs = this.resolve(p);
+    for (let n = 2; fs.existsSync(this.writable(p)); n++) p = `${base}-${n}${ext}`;
+    const abs = this.writable(p);
     fs.mkdirSync(path.dirname(abs), { recursive: true });
     fs.writeFileSync(abs, text, { flag: "wx" });
     return p;
   }
 
-  mkdir(rel: string) { fs.mkdirSync(this.resolve(rel), { recursive: true }); }
+  mkdir(rel: string) { fs.mkdirSync(this.writable(rel), { recursive: true }); }
 
   rename(from: string, to: string) {
-    const a = this.resolve(from), b = this.resolve(to);
+    const a = this.writable(from), b = this.writable(to);
     if (a === this.root) throw new FolderError("the folder itself can't move");
     if (fs.existsSync(b)) throw new FolderError(`${to} exists`, 409);
     fs.mkdirSync(path.dirname(b), { recursive: true });
@@ -83,13 +104,13 @@ export class Folder {
   }
 
   /** Copies a file to a new one in the folder (Duplicate); returns the new path. */
-  copyIn(from: string, to: string): string { return this.create(to, this.read(from)); }
+  copyIn(from: string, to: string): string { this.writable(to); return this.create(to, this.read(from)); }
 
   /** Move to trash: into `.julix/trash/<time>/`, so it can come back. */
   trash(rel: string) {
-    const abs = this.resolve(rel);
+    const abs = this.writable(rel);
     if (abs === this.root) throw new FolderError("the folder itself can't go to the trash");
-    const dest = path.join(this.root, ".julix", "trash", new Date().toISOString().replace(/[:.]/g, "-"), rel);
+    const dest = path.join(this.data, "trash", new Date().toISOString().replace(/[:.]/g, "-"), rel);
     fs.mkdirSync(path.dirname(dest), { recursive: true });
     fs.renameSync(abs, dest);
   }

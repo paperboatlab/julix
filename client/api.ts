@@ -18,7 +18,8 @@ export type Values = { kind: "scalar"; value: number } | { kind: "vector"; value
 /** A hub Malachite knows (server/hubs.ts, from `paperboat hub list`). */
 export type HubInfo = { id: string; name: string; path: string; shown: string; place: "local" | "google-drive" | "onedrive" | "dropbox" | "icloud"; missing?: boolean; conflicts?: number; holds?: string };
 /** What Julix works in (server/main.ts): a folder, a hub, or null (the Start page). */
-export type Workspace = { kind: "folder" | "hub"; root: string; name: string; hub?: string };
+/** `readOnly`: an example opened in place (the server refuses every write in it); `example`: which, when known. */
+export type Workspace = { kind: "folder" | "hub"; root: string; name: string; hub?: string; readOnly?: true; example?: { id: string; name: string; cache: boolean } };
 export type Theme = "light" | "dark" | "system";
 export type Scale = 0.75 | 1 | 1.25;
 export type RecentEntry = { kind: "folder" | "hub" | "file"; path: string; hub?: string; app?: string; at: number };

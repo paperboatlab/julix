@@ -37,5 +37,10 @@ The examples open from the command search: press :kbd:`Ctrl K`, type ``example``
 **Open example: <name>**. Julix asks Paperboat for them (``paperboat example list --app julix``); opening one
 opens it where it is, in a new window. A line at the top says it is an example: run it as it is, or click
 **copy it to <folder>** to change it. The copy goes into the folder you opened the example from (with no folder
-open, Julix asks where) and opens in its own window. An example from GitHub is a copy Paperboat replaces after a
-day, so changes there aren't kept. Without Paperboat there are none.
+open, Julix asks where) and opens in its own window. Without Paperboat there are none.
+
+An example opened in place is read-only: the editor takes no typing, and Save, New script, New folder, Rename,
+Duplicate, Move to trash and dragging files are off. Running it changes nothing in it either: the run goes on in a
+copy Julia makes in its own temporary folder, so what the script writes (its ``out/`` folder) stays there, and its
+figures are kept outside the example. Save as… saves a copy somewhere else. An example is never added to the recent
+list, and an example hub is not listed with your hubs.

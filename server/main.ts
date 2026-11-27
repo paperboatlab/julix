@@ -9,8 +9,9 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Control, ControlError, paperboatVersion } from "./control.ts";
-import { Folder, FolderError } from "./folder.ts";
-import { copyExample, examples, holds, hubs, openExample, paperboat } from "./hubs.ts";
+import { Examples, scratchFor, type ExampleInfo } from "./examples.ts";
+import { EXAMPLE_LOCKED, Folder, FolderError } from "./folder.ts";
+import { copyExample, holds, hubs, openExample, paperboat } from "./hubs.ts";
 import { forget, isScale, isTheme, readConfigFile, recent, remember, saveSettings, settings, writeConfigFile } from "./store.ts";
 import { PackageError } from "./packages.ts";
 import { Sessions, type Kind } from "./session.ts";
@@ -25,8 +26,9 @@ const TYPES: Record<string, string> = {
 };
 const KINDS = new Set<Kind>(["file", "cell", "line", "console"]);
 
-/** What Julix works in: a folder, a hub (`hub`: its id), or nothing (the page shows Start). */
-export type Workspace = { kind: "folder" | "hub"; root: string; name: string; hub?: string };
+/** What Julix works in: a folder, a hub (`hub`: its id), or nothing (the page shows Start). An example opened in
+ *  place (server/examples.ts) is `readOnly`, with `example` when it is known which. */
+export type Workspace = { kind: "folder" | "hub"; root: string; name: string; hub?: string; readOnly?: true; example?: ExampleInfo };
 
 const within = (root: string, p: string) => p === root || p.startsWith(root + path.sep);
 const real = (p: string) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
@@ -40,7 +42,7 @@ function absolute(p: string): string {
 
 /** `share`: the session's variables go live to every running Simplicial station (the julix command shares; a test
  *  doesn't, so it never reaches a station the machine is running). */
-export function serve(dir: string | null, port = DEFAULT_PORT, control = new Control(), share: Share | null = null) {
+export function serve(dir: string | null, port = DEFAULT_PORT, control = new Control(), share: Share | null = null, known = new Examples()) {
   let ws: Workspace | null = null;
   let folder: Folder | null = null;
   let sessions: Sessions | null = null;
@@ -70,22 +72,26 @@ export function serve(dir: string | null, port = DEFAULT_PORT, control = new Con
     const r = root && fs.realpathSync(root);
     if (r !== (folder?.root ?? null)) {
       sessions?.restart(); watcher?.close(); clearTimeout(timer); pending = new Set();
-      folder = r ? new Folder(r) : null;
+      folder = r ? new Folder(r, { locked: (p) => known.locked(p), scratch: scratchFor }) : null;
       sessions = folder && new Sessions(folder, control, emit);
       watcher = folder && watch(folder.root);
     }
-    ws = folder && { kind: hub ? "hub" : "folder", root: folder.root, name: hub?.name ?? folder.name, ...(hub ? { hub: hub.id } : {}) };
-    if (ws) remember({ kind: ws.kind, path: ws.root, hub: ws.hub });
+    const example = folder?.readOnly ? known.at(folder.root) : undefined;
+    ws = folder && { kind: hub ? "hub" : "folder", root: folder.root, name: example?.name ?? hub?.name ?? folder.name, ...(hub ? { hub: hub.id } : {}),
+      ...(folder.readOnly ? { readOnly: true as const } : {}), ...(example ? { example } : {}) };
+    if (ws && !ws.readOnly) remember({ kind: ws.kind, path: ws.root, hub: ws.hub });   // an example in place is in no recent list
     emit({ type: "folder" });
     return ws;
   };
+  /** The hubs Malachite knows, less the examples' (an example hub opened in place is no hub of the user's). */
+  const userHubs = async () => { await known.ready; return (await hubs()).filter((h) => !known.locked(h.path)); };
   /** The known hub whose folder holds `p` (or is it). */
-  const hubOf = async (p: string) => (await hubs()).find((h) => !h.missing && within(real(h.path), p));
+  const hubOf = async (p: string) => (await userHubs()).find((h) => !h.missing && within(real(h.path), p));
   /** A folder: a hub when it is one's folder, else a plain folder. */
   const openFolder = async (p: string) => {
     const abs = real(absolute(p));
     if (!fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) throw new FolderError(`no folder ${p}`, 404);
-    const h = (await hubs()).find((x) => !x.missing && real(x.path) === abs);
+    const h = (await userHubs()).find((x) => !x.missing && real(x.path) === abs);
     return workIn(abs, h);
   };
   /** A file from anywhere: inside the workspace it just opens; from outside, the workspace switches to its
@@ -97,7 +103,7 @@ export function serve(dir: string | null, port = DEFAULT_PORT, control = new Con
       const h = await hubOf(abs);
       workIn(h ? h.path : path.dirname(abs), h);
     }
-    remember({ kind: "file", path: abs, hub: ws!.hub });
+    if (!known.locked(abs)) remember({ kind: "file", path: abs, hub: ws!.hub });
     return { workspace: ws, path: path.relative(folder!.root, abs).split(path.sep).join("/") };
   };
   // a folder given at the start (paperboat app open julix <folder>): a hub when it is one
@@ -130,7 +136,7 @@ export function serve(dir: string | null, port = DEFAULT_PORT, control = new Con
         case "POST /api/workspace": {   // { kind: "folder", path } | { kind: "hub", id } | { kind: null }: Close
           if (body.kind === "folder") return send(res, 200, await openFolder(str("path")));
           if (body.kind !== "hub") return send(res, 200, workIn(null));
-          const h = (await hubs()).find((x) => x.id === str("id"));
+          const h = (await userHubs()).find((x) => x.id === str("id"));
           if (!h) throw new FolderError("no such hub", 404);
           if (h.missing) throw new FolderError(`can't find ${h.name}'s folder (${h.shown})`, 410);
           return send(res, 200, workIn(h.path, h));
@@ -138,6 +144,8 @@ export function serve(dir: string | null, port = DEFAULT_PORT, control = new Con
         case "POST /api/open": return send(res, 200, await openFile(str("path")));   // a file by its whole path (the shell's, or typed)
         case "POST /api/saveas": {   // { path, text, new? }: a file written by its whole path, then opened (new: never over one)
           const abs = absolute(str("path"));
+          await known.ready;
+          if (known.locked(abs)) throw new FolderError(`${str("path")} ${EXAMPLE_LOCKED}`, 403);
           if (body.new === true && fs.existsSync(abs)) throw new FolderError(`${str("path")} exists`, 409);
           fs.mkdirSync(path.dirname(abs), { recursive: true });
           const tmp = `${abs}.${process.pid}.tmp`;
@@ -145,10 +153,11 @@ export function serve(dir: string | null, port = DEFAULT_PORT, control = new Con
           fs.renameSync(tmp, abs);
           return send(res, 200, await openFile(abs));
         }
-        case "GET /api/recent": return send(res, 200, { version: 1, recent: recent() });
+        case "GET /api/recent": { await known.ready; return send(res, 200, { version: 1, recent: recent().filter((e) => !known.locked(e.path)) }); }
         case "POST /api/recent": {   // a file of the workspace opened in the editor
           if (!folder) throw new FolderError("no folder open", 409);
-          remember({ kind: "file", path: folder.resolve(str("path")), hub: ws?.hub });
+          const abs = folder.resolve(str("path"));
+          if (!folder.readOnly && !known.locked(abs)) remember({ kind: "file", path: abs, hub: ws?.hub });
           return send(res, 200, {});
         }
         case "POST /api/recent/clear": { forget(); return send(res, 200, {}); }
@@ -163,7 +172,7 @@ export function serve(dir: string | null, port = DEFAULT_PORT, control = new Con
         case "GET /api/config": return send(res, 200, readConfigFile());   // julix.toml: the editor settings (the kit's ConfigStore)
         case "PUT /api/config": { writeConfigFile(str("text")); return send(res, 200, {}); }
         case "GET /api/hubs": {   // with what each holds, for Connect to a hub
-          const list = await hubs();
+          const list = await userHubs();
           return send(res, 200, list.map((h) => (h.missing ? h : { ...h, holds: holds(h.path) })));
         }
         case "POST /api/hubs/new": {   // New hub…: Malachite makes it (paperboat hub new), Julix works in it
@@ -182,14 +191,19 @@ export function serve(dir: string | null, port = DEFAULT_PORT, control = new Con
           await paperboat(["launcher", "--page", "runtimes", "--runtime", "julia"]).catch((e) => { throw new FolderError(e.message, 502); });
           return send(res, 200, {});
         }
-        case "GET /api/examples": return send(res, 200, await examples());   // Open example: in Ctrl K (paperboat#72)
+        case "GET /api/examples": return send(res, 200, await known.all());   // Open example: in Ctrl K (paperboat#72)
         case "POST /api/examples/open": {   // in place; its Copy goes to `to` (an example's window passes its own on,
           // null: none), else this workspace's folder, if one is open (paperboat#75)
-          const to = !("to" in body) ? ws?.root : body.to == null ? undefined : absolute(str("to"));
+          // (an example open here is no place for one: its Copy then asks where)
+          await known.ready;
+          const to = !("to" in body) ? (ws?.readOnly ? undefined : ws?.root) : body.to == null ? undefined : absolute(str("to"));
+          if (to && known.locked(to)) throw new FolderError(`${to} ${EXAMPLE_LOCKED}`, 403);
           return send(res, 200, await openExample(str("id"), to).catch((e) => { throw new FolderError(e.message, 502); }));
         }
         case "POST /api/examples/copy": {   // the banner's Copy: into `to`, the copy opened in a new window
           const to = absolute(str("to"));   // a whole path, so never an option
+          await known.ready;
+          if (known.locked(to)) throw new FolderError(`${str("to")} ${EXAMPLE_LOCKED}`, 403);   // a copy goes outside the examples
           return send(res, 200, await copyExample(str("id"), to).catch((e) => { throw new FolderError(e.message, 502); }));
         }
         case "GET /api/paperboat": return send(res, 200, { version: await paperboatVersion() });
