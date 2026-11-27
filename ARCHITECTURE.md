@@ -59,11 +59,15 @@ flowchart LR
   shell), read when the page asks; a CLI that is missing or fails means no hubs, and the page says nothing
   about them (no Malachite, no hub). `holds` counts a hub's scripts for Connect to a hub. `.malachite/` is
   a dot folder: never in the tree. New hub is `paperboat hub new`, Open in Malachite `paperboat app open malachite`.
-  The examples (paperboat#72) come from the same CLI: `GET /api/examples` is `paperboat example list --app julix`
+  The examples (paperboat#72, #75) come from the same CLI: `GET /api/examples` is `paperboat example list --app julix`
   (a missing or failing CLI: none), read once as the page loads, and each is a Ctrl K command, **Open example:
-  <name>** (the kit's `exampleCommands`, in no menu); `POST /api/examples/open` runs `paperboat example open <id>`,
-  which copies the example for the user once (`$PAPERBOAT_HOME/examples/<id>`) and opens the copy in a new window;
-  its error goes to the page as a toast. With `--json` the CLI says why it failed as `{error}`, which `paperboat()` reports.
+  <name>** (the kit's `exampleCommands`, in no menu); `POST /api/examples/open {id}` runs `paperboat example open
+  <id> [--to <the workspace folder>]`, which opens the example where it is (its checkout, or GitHub's copy in
+  `$PAPERBOAT_HOME/cache/examples`) in a new window whose URL says so (`?example=&name=[&to=][&cache=1]`). That
+  page reads it once as it loads (the kit's `exampleFromUrl`; a reload in another workspace drops it) and shows the
+  kit's `ExampleBanner` at the top of the bay; its Copy is `POST /api/examples/copy {id, to}` (`to`: a whole path),
+  `paperboat example copy <id> --to <to> --open`, into `to` or, with none, a folder picked as Open folder… picks.
+  The CLI's error goes to the page as a toast. With `--json` the CLI says why it failed as `{error}`, which `paperboat()` reports.
 - `server/store.ts`: the store every app shares under `$PAPERBOAT_HOME` (resolved as paperboat's
   `paths.cpp`): `recent.json` (folders, hubs and files opened, newest first, one per kind and path, 40 at
   most) and `settings.json` (the theme), each written whole to a temp file and renamed.

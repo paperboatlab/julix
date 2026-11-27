@@ -3,7 +3,7 @@
 // keys); Settings (File › Settings…, Ctrl ,) is the kit's window: General, Julix, Editor, Hub, Shortcuts; Files at the left; the script and its figure; the Workspace card at the right; the Console below.
 // No workspace: the Start page in the bay. Everything shown comes from the app server; the files are the record.
 import {
-  About, AppMark, DebugDock, DEBUG_KEYS, Dialog, HelpWindow, Icon, Key, Menu, MenuBar, Notifications, Panel, PanelsKey, SEARCH_CHORD, Search, SettingRow, Settings, SettingsSection, ScaleSetting, ShortcutList, Spinner, Split, ThemeSetting, Toasts, WindowKeys, exampleCommands, isScale, readStored, useScale, useShortcuts, useTheme, useToasts, writeStored,
+  About, AppMark, DebugDock, DEBUG_KEYS, Dialog, HelpWindow, Icon, Key, Menu, MenuBar, Notifications, Panel, PanelsKey, SEARCH_CHORD, Search, SettingRow, Settings, SettingsSection, ScaleSetting, ShortcutList, Spinner, Split, ThemeSetting, Toasts, WindowKeys, ExampleBanner, exampleCommands, exampleFromUrl, isScale, readStored, useScale, useShortcuts, useTheme, useToasts, writeStored,
   type Command, type Credit, type Example, type Scale, type HelpProvider, type MenuEntry, type PaneRect, type SearchItem, type Theme,
 } from "@paperboatlab/ui";
 import { EditorSettingsPane, EditorTabs, afterClose, orderTabs, tabMenu, useEditorSettings, type EditorPos } from "@paperboatlab/ui/editor";
@@ -34,6 +34,10 @@ const CHORDS: Record<Side, Command["chord"]> = { l: { key: "b", ctrl: true }, f:
 const MENUS = [{ id: "file", label: "File" }, { id: "edit", label: "Edit" }, { id: "view", label: "View" }, { id: "kernel", label: "Kernel" }, { id: "help", label: "Help" }];
 /** What Julix opens: the pickers' types. */
 const TYPES = ["jl", "mx"];
+// an example's window (paperboat#75): read before anything rewrites the URL
+const opened = exampleFromUrl(location.search);
+/** Before the page reloads in another workspace: it is no longer the example's window. */
+const leaveExample = () => history.replaceState(null, "", location.pathname);
 /** The window as the Panels key sketches it: files, editor, figure, console, workspace. */
 const LAYOUT: Record<string, PaneRect> = { l: [4, 4, 10, 36], e: [16, 4, 16, 26], f: [34, 4, 12, 26], b: [16, 32, 30, 8], r: [48, 4, 12, 36] };
 type Ask = { title: string; label?: string; value?: string; danger?: boolean; ok: string; text?: string; run: (v: string) => void };
@@ -131,7 +135,7 @@ export function App() {
   const [peekVersion, setPeekVersion] = useState(0);
   const [search, setSearch] = useState(false);
   const [ask, setAsk] = useState<Ask | null>(null);
-  const [dialog, setDialog] = useState<"settings" | "about" | "help" | "hub" | "ask" | "open" | "save" | "folder" | "file" | null>(null);
+  const [dialog, setDialog] = useState<"settings" | "about" | "help" | "hub" | "ask" | "open" | "save" | "folder" | "file" | "copy" | null>(null);
   const [settingsPage, setSettingsPage] = useState<string>();   // the page Settings opens on (Help › Keyboard shortcuts: "shortcuts")
   const settings = (page?: string) => { setSettingsPage(page); setDialog("settings"); };
   // unsaved changes before a file (or the folder or hub holding it) closes: what closes, and what then
@@ -213,7 +217,7 @@ export function App() {
     } else if (e.type === "variables") setVariables(e.variables);
     else if (e.type === "figures") reloadFigures();
     else if (e.type === "debug") stopped(e.paused as Paused | null);
-    else if (e.type === "folder" && !switching.current) location.reload();   // another page moved the server to another workspace
+    else if (e.type === "folder" && !switching.current) { leaveExample(); location.reload(); }   // another page moved the server to another workspace
     else if (e.type === "session") {
       setSession(e.state); setPeekVersion((v) => v + 1);
       // the session starts in the background (the first time in a folder it adds JulixPlot too): one toast, working to its end
@@ -235,12 +239,13 @@ export function App() {
     const p = new URLSearchParams(location.search).get("open");
     if (!p) return;
     if (!/^(\/|~)/.test(p)) { open(p); return; }
-    history.replaceState(null, "", location.pathname);
+    const rest = new URLSearchParams(location.search); rest.delete("open");   // the example's params stay
+    history.replaceState(null, "", `${location.pathname}${rest.size ? `?${rest}` : ""}`);
     switching.current = true;   // the server may move: this page reloads itself, not on the event
     api.workspace().then((was) => api.openPath(p).then((r) => {
       if (was.workspace?.root === r.workspace.root) { switching.current = false; open(r.path); return; }
       writeStored("julix.root", r.workspace.root); writeStored("julix.tabs", [r.path]); writeStored("julix.pinned", []);
-      location.reload();
+      leaveExample(); location.reload();
     })).catch((e) => { switching.current = false; fail(e); });
   }, [open, fail]);
   const save = useCallback(async (p: string, text: string) => {
@@ -279,7 +284,7 @@ export function App() {
       const r = await go();
       const w = r && "path" in r ? r.workspace : r as Place | null;
       writeStored("julix.root", w?.root ?? null); writeStored("julix.tabs", r && "path" in r ? [r.path] : []); writeStored("julix.pinned", []);
-      location.reload();
+      leaveExample(); location.reload();
     };
     const run = () => (what ? opener.open(what, work) : work()).catch((e) => { switching.current = false; fail(e); });
     if (ask) guard(ws?.kind === "hub" ? "the hub" : "the folder", run); else run();
@@ -298,6 +303,13 @@ export function App() {
   const openFile = () => { if (ws?.kind === "hub") setDialog("open"); else if (hubs.length) { readHubs(); setDialog("ask"); } else pickLocal(); };
   const openFolder = () => {
     if (sh) sh.pickFolder("Open folder").then((p) => p && switchTo({ name: baseName(p), path: p }, () => api.workIn({ kind: "folder", path: p })), fail); else setDialog("folder");
+  };
+  // the example banner's Copy: into the folder it was opened from, else one picked as Open folder… picks;
+  // the CLI opens the copy in a new window
+  const copyTo = (to: string) => api.copyExample(opened!.id, to).then((r) => show({ title: `Copied to ${tilde(r.path, home)}`, state: "done" }), fail);
+  const copyExample = () => {
+    if (opened?.to) copyTo(opened.to);
+    else if (sh) sh.pickFolder("Copy the example to").then((p) => { if (p) copyTo(p); }, fail); else setDialog("copy");
   };
   const connect = () => { readHubs(); setDialog("hub"); };
   const toHub = (id: string) => switchTo({ name: hubs.find((h) => h.id === id)?.name ?? "the hub", hub: id }, () => api.workIn({ kind: "hub", id }));
@@ -484,8 +496,8 @@ export function App() {
       run: () => { if (!document.activeElement?.closest('.cm-content[contenteditable="true"]')) settings("shortcuts"); } },
     { id: "help.manual", label: "Julix on GitHub", menu: "help", group: "docs", icon: "link-external", run: () => { window.open("https://github.com/paperboatlab/julix#readme", "_blank", "noopener"); } },
     { id: "help.about", label: "About Julix", menu: "help", group: "about", icon: "info", run: () => setDialog("about") },
-    // Open example: <name>, only in Ctrl K: the CLI copies it for the user and opens it in a new window
-    ...exampleCommands(examples, (id) => { api.openExample(id).catch(fail); }),
+    // Open example: <name>, only in Ctrl K: the CLI opens it where it is, in a new window with the example banner
+    ...exampleCommands(examples, (id) => { api.openExample(id, opened ? opened.to ?? null : undefined).catch(fail); }),   // an example's window: its own folder
   ];
   useShortcuts(commands);
   const searchItems: SearchItem[] = [
@@ -552,6 +564,7 @@ export function App() {
         </Panel>
 
         <div className="mid bay">
+          {opened && <ExampleBanner name={opened.name} folder={opened.to && tilde(opened.to, home)} cache={opened.cache} onCopy={copyExample} />}
           <Split className={`top${hidden.f ? " fig-hidden" : ""}`} sized="end" size={hidden.f ? 38 : figW} defaultSize={figWidth()} min={320} otherMin={320}
             onSize={setFigW} onHidden={() => toggle("f", true)} label="Figure width">
             <section className="panel ed" aria-label="Script">
@@ -638,6 +651,7 @@ export function App() {
         onSave={(p) => { setDialog(null); api.save(p, draft ?? doc?.text ?? "").then(() => { reload(); open(p); }, fail); }} />}
       {dialog === "folder" && <TypedPath title="Open folder" onClose={() => setDialog(null)}
         onOpen={(p) => { setDialog(null); switchTo({ name: baseName(p), path: p }, () => api.workIn({ kind: "folder", path: p })); }} />}
+      {dialog === "copy" && <TypedPath title="Copy the example to" onClose={() => setDialog(null)} onOpen={(p) => { setDialog(null); copyTo(p); }} />}
       {dialog === "file" && <TypedPath title="Open a local file" what="file" onClose={() => setDialog(null)} onOpen={(p) => { setDialog(null); openAbs(p); }} />}
       {closing && current && <Unsaved name={base(current)} closing={closing.what} onClose={() => setClosing(null)}
         onSave={() => { const then = closing.then; setClosing(null); save(current, draft!).then((ok) => ok && then()); }}

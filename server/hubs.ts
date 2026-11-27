@@ -1,7 +1,8 @@
 // The hubs (paperboat#16, plans/2026-11-25_14-55_hub_standard.md §3): Malachite's, learned from
 // `paperboat hub list --json` when the page asks (the well, Connect to a hub, a file opened from outside).
 // No Malachite, no hub: a CLI that is missing, fails or has no `hub` command means no hubs, and the page says nothing.
-// The examples (paperboat#72) come from the same CLI: `paperboat example list --app julix` and `example open <id>`.
+// The examples (paperboat#72, #75) come from the same CLI: `paperboat example list --app julix`, `example open <id>`
+// (in place, in a new window whose banner offers a copy) and `example copy <id> --to <folder> --open`.
 import { execFile } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
@@ -50,10 +51,17 @@ export async function examples(): Promise<Example[]> {
   }));
 }
 
-/** Opens an example: the CLI copies it for the user once and opens that copy in a new window. Rejects with its error. */
-export function openExample(id: string): Promise<unknown> {
-  if (!/^[\w.]+(\/[\w.-]+)*$/.test(id)) return Promise.reject(new Error(`no example ${JSON.stringify(id)}`));   // an id, never an option
-  return paperboat(["example", "open", id], 60_000);
+const exampleId = (id: string) => { if (!/^[\w.]+(\/[\w.-]+)*$/.test(id)) throw new Error(`no example ${JSON.stringify(id)}`); return id; };   // an id, never an option
+
+/** Opens an example where it is (its checkout or GitHub's cache), in a new window; `to`: the folder it was opened
+ *  from, where its banner's Copy goes. Rejects with the CLI's error. */
+export async function openExample(id: string, to?: string): Promise<unknown> {
+  return paperboat(["example", "open", exampleId(id), ...(to ? ["--to", to] : [])], 60_000);
+}
+
+/** Copies an example into `to` (an absolute folder) and opens the copy in a new window. Rejects with the CLI's error. */
+export async function copyExample(id: string, to: string): Promise<unknown> {
+  return paperboat(["example", "copy", exampleId(id), "--to", to, "--open"], 60_000);
 }
 
 /** What Julix opens (the pickers' types). */

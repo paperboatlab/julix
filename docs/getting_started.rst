@@ -35,5 +35,7 @@ The examples
 
 The examples open from the command search: press :kbd:`Ctrl K`, type ``example``, and pick
 **Open example: <name>**. Julix asks Paperboat for them (``paperboat example list --app julix``); opening one
-copies it to your own folder once (``$PAPERBOAT_HOME/examples/<id>``) and opens that copy in a new window, so
-you can change it. Without Paperboat there are none.
+opens it where it is, in a new window. A line at the top says it is an example: run it as it is, or click
+**copy it to <folder>** to change it. The copy goes into the folder you opened the example from (with no folder
+open, Julix asks where) and opens in its own window. An example from GitHub is a copy Paperboat replaces after a
+day, so changes there aren't kept. Without Paperboat there are none.

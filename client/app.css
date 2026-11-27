@@ -25,7 +25,7 @@ body { background: var(--surface-ground); color: var(--text); font: var(--size-s
 .top { flex: 1; min-height: 0; display: flex; gap: var(--gutter); }
 .welcome { display: flex; flex-direction: column; align-items: center; gap: 14px; } .welcome p { max-width: 340px; margin: 0; } .welcome > span { display: flex; gap: 8px; }
 
-/* the script: the kit's EditorTabs, the read-only line of an example, the editor; cells are drawn in Code.tsx */
+/* the script: the kit's EditorTabs, the editor; cells are drawn in Code.tsx */
 .panel.ed { flex: 1; min-width: 0; overflow: hidden; }
 .top > .panel { min-width: 0; }
 .ed .body { flex: 1; min-height: 0; display: flex; flex-direction: column; overflow: hidden; position: relative; }   /* the debug dock floats at its bottom */
