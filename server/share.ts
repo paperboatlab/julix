@@ -38,6 +38,7 @@ function alive(pid: number) {
 export class Share {
   private sockets = new Map<string, WebSocket>();
   private last: SharedVariable[] = [];
+  private told = new WeakSet<WebSocket>();   // the stations holding a list from this one
   private read: () => Promise<SharedVariable[]> = async () => [];
   private timer: NodeJS.Timeout;
   private find: () => string[];
@@ -68,7 +69,13 @@ export class Share {
     const list = await this.read().catch(() => this.last);
     this.last = list;
     const msg = JSON.stringify({ type: "variables.set", source: "julix", variables: list });
-    for (const w of this.sockets.values()) if (w.readyState === WebSocket.OPEN) w.send(msg);
+    // Every Julix window on the computer connects (a Start page, a fresh session): an empty list goes only to a
+    // station this one gave variables, to take them back, so it never clears another window's (julix#44).
+    for (const w of this.sockets.values()) {
+      if (w.readyState !== WebSocket.OPEN || (!list.length && !this.told.has(w))) continue;
+      w.send(msg);
+      if (list.length) this.told.add(w); else this.told.delete(w);
+    }
   }
 
   private scan() {
@@ -80,7 +87,8 @@ export class Share {
       // a new station gets the variables as they are now (Julia is asked once more: the last run may be newer)
       w.addEventListener("open", () => void this.send());
       w.addEventListener("close", () => { if (this.sockets.get(url) === w) this.sockets.delete(url); });
-      w.addEventListener("error", () => w.close());
+      // a failed socket closes itself and fires close; closing it from error failed it again, which fired error
+      // again, until the stack ran out and the server died (julix#51)
       // the station's own messages (its hello, catalog, scene) are for pages, not for Julix
     }
   }

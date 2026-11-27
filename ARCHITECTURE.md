@@ -50,6 +50,8 @@ flowchart LR
   `Sessions.shared` reads them in one quiet eval: real numbers, Bools, one-line text, real arrays as a matrix by its
   rows up to 4096 values (larger: a note). Only the julix command shares (`serve`'s `share`), never a test. The
   station resolves the flow's own variables first and these under the names left; closing the socket drops them.
+  Every Julix window connects, so an empty list goes only to a station this one gave variables (julix#44), and a
+  failing socket is left to close itself (closing it from `error` recursed until the server died, julix#51).
 - `server/packages.ts`: the folder's packages before its first session, the platform's way (the CLI's recipe):
   an exec lease with the network for that step only. JulixPlot is added (a writable project) when `Project.toml`
   doesn't list it; otherwise what `Manifest.toml` records and the folder's deps volume lacks (paperboatd keeps one
