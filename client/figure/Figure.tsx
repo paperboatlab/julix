@@ -1,6 +1,6 @@
 // One figure in the figure pane: a JulixPlot figure (application/vnd.paperboat.figure+json) drawn
 // interactively by FigureView; any other display (SVG or PNG from Plots.jl, CairoMakie…) as its image.
-import { useEffect, useRef, useState } from "react";
+import { Component, useEffect, useRef, useState, type ReactNode } from "react";
 import { api, type Figure as FigureRef } from "../api.ts";
 import { FigureView } from "./FigureView.tsx";
 import { unpackScene, type FigureScene } from "./scene.ts";
@@ -31,6 +31,13 @@ function preview(stage: HTMLElement): string | null {
   return out.toDataURL("image/png").slice("data:image/png;base64,".length);
 }
 
+/** A figure that throws while drawn (a 3D axis with no WebGL context) fails here, alone: the page stays. */
+class FigureBoundary extends Component<{ children: ReactNode }, { error: string }> {
+  state = { error: "" };
+  static getDerivedStateFromError(e: unknown) { return { error: String((e as Error)?.message ?? e) }; }
+  render() { return this.state.error ? <p className="empty-state">This figure couldn't be drawn: {this.state.error}</p> : this.props.children; }
+}
+
 export function Figure({ f, label, resetSeq }: { f: FigureRef; label: string; resetSeq: number }) {
   const [scene, setScene] = useState<FigureScene | null>(null);
   const [error, setError] = useState("");
@@ -53,5 +60,5 @@ export function Figure({ f, label, resetSeq }: { f: FigureRef; label: string; re
   // the hooks above run on every render: an image figure and a JulixPlot one share this pane
   if (f.mime !== FIGURE) return <div className="screen"><img src={api.figure(f)} alt={label} /></div>;
   if (error) return <p className="empty-state">This figure couldn't be read: {error}</p>;
-  return <div className="figstage" ref={stage}><FigureView figureKey={key} scene={scene} label={label} resetSeq={resetSeq} /></div>;
+  return <div className="figstage" ref={stage}><FigureBoundary key={key}><FigureView figureKey={key} scene={scene} label={label} resetSeq={resetSeq} /></FigureBoundary></div>;
 }
