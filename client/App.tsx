@@ -34,6 +34,8 @@ const CHORDS: Record<Side, Command["chord"]> = { l: { key: "b", ctrl: true }, f:
 const MENUS = [{ id: "file", label: "File" }, { id: "edit", label: "Edit" }, { id: "view", label: "View" }, { id: "kernel", label: "Kernel" }, { id: "help", label: "Help" }];
 /** What Julix opens: the pickers' types. */
 const TYPES = ["jl", "mx"];
+/** The file menu's entries that change the folder: off in an example. */
+const WRITES = new Set(["new", "folder", "rename", "dup", "trash"]);
 // an example's window (paperboat#75): read before anything rewrites the URL
 const opened = exampleFromUrl(location.search);
 /** Before the page reloads in another workspace: it is no longer the example's window. */
@@ -98,6 +100,11 @@ export function App() {
   // what Julix works in: a folder, a hub, or nothing (the Start page); undefined till the server says
   const [info, setInfo] = useState<{ workspace: Place | null; home: string; version: string }>();
   const ws = info?.workspace ?? null;
+  // an example opened in place is read-only (the server refuses every write in it too): it runs as it is, and
+  // the banner's Copy makes one to change. The example: as its URL says (paperboat example open), else as the server knows it.
+  const ro = !!ws?.readOnly;
+  const example = opened ?? (ws?.example ? { ...ws.example, to: undefined } : null);
+  const LOCKED = "an example: copy it to change it";
   // the hubs Malachite knows: read when the page opens, and again as anything that shows them opens.
   // No Malachite, no hub: with none, nothing on the page mentions hubs.
   const [hubs, setHubs] = useState<HubInfo[]>([]);
@@ -256,6 +263,7 @@ export function App() {
     })).catch((e) => { switching.current = false; fail(e); });
   }, [open, fail]);
   const save = useCallback(async (p: string, text: string) => {
+    if (ro) { show({ title: `${base(p)} is an example`, detail: "Copy it (the banner above) to change it", state: "failed" }); return false; }
     const id = unsaved.current.get(p);
     try {
       await api.save(p, text); setDraft((d) => (d === text ? null : d)); setDoc((d) => (d && d.path === p ? { ...d, text } : d));
@@ -266,7 +274,7 @@ export function App() {
       unsaved.current.set(p, show({ id, title: `Couldn't save ${base(p)}`, detail: `${(e as Error).message ?? e} · the text stays in the editor`, state: "failed" }));
       return false;
     }
-  }, [show]);
+  }, [show, ro]);
   // only the shown tab can be unsaved (the rest were saved as they were left): before it closes, alone or with
   // its folder or hub, Unsaved asks: Save, Don't save, Cancel
   const dirty = !!current && draft !== null;
@@ -313,9 +321,9 @@ export function App() {
   };
   // the example banner's Copy: into the folder it was opened from, else one picked as Open folder… picks;
   // the CLI opens the copy in a new window
-  const copyTo = (to: string) => api.copyExample(opened!.id, to).then((r) => show({ title: `Copied to ${tilde(r.path, home)}`, state: "done" }), fail);
+  const copyTo = (to: string) => api.copyExample(example!.id, to).then((r) => show({ title: `Copied to ${tilde(r.path, home)}`, state: "done" }), fail);
   const copyExample = () => {
-    if (opened?.to) copyTo(opened.to);
+    if (example?.to) copyTo(example.to);
     else if (sh) sh.pickFolder("Copy the example to").then((p) => { if (p) copyTo(p); }, fail); else setDialog("copy");
   };
   const connect = () => { readHubs(); setDialog("hub"); };
@@ -341,7 +349,8 @@ export function App() {
     if (sh) {
       sh.pickSave(base(current), TYPES, "Save as").then((p) => {
         const rel = p && ws && inside(ws.root, p);
-        if (rel) api.save(rel, body).then(() => { reload(); open(rel); }, fail);
+        if (rel && ro) show({ title: `Not into ${ws!.name}`, detail: `It is ${LOCKED}; save it somewhere else`, state: "failed" });
+        else if (rel) api.save(rel, body).then(() => { reload(); open(rel); }, fail);
         else if (p) switchTo(null, () => api.saveAs(p, body), false);   // the old file keeps what it had on disk
       }, fail);
       return;
@@ -396,6 +405,7 @@ export function App() {
 
   // New script: in the workspace, a name; with none, where it goes (the system's dialog, or a typed path)
   const newScript = (dir = current && !current.startsWith("@") ? dirOf(current) : "") => {
+    if (ro) { show({ title: `No new script in ${ws!.name}`, detail: `It is ${LOCKED}`, state: "failed" }); return; }
     if (!ws) {
       if (sh) sh.pickSave("untitled.jl", ["jl"], "New script").then((p) => p && switchTo(null, () => api.saveAs(p, NEW_SCRIPT)), fail);
       else setAsk({ title: "New script", label: "Whole path", value: `${home ? "~" : ""}/untitled.jl`, ok: "Create",
@@ -418,7 +428,10 @@ export function App() {
   const trash = (p: string) => setAsk({ title: `Move ${p} to the trash?`, danger: true, ok: "Move to trash", text: "It goes to .julix/trash in the folder, so it can come back.",
     run: () => api.trash(p).then(() => { reload(); close(p); }, fail) });
   const into = (e?: FileEntry) => (!e ? "" : e.kind === "folder" ? e.path : dirOf(e.path));
-  const treeActions: FileActions = {
+  const treeActions: FileActions = ro ? {   // an example: open and copy a path; no new, rename, duplicate, delete or move (drag)
+    onOpen: (e) => e.kind === "file" && open(e.path),
+    onCopyPath: (e) => { copy(e.path, "Path"); },
+  } : {
     onOpen: (e) => e.kind === "file" && open(e.path),
     onNewFile: (e) => newScript(into(e)),
     onNewFolder: (e) => newFolder(into(e)),
@@ -428,7 +441,12 @@ export function App() {
     onCopyPath: (e) => { copy(e.path, "Path"); },
     onMove: (src, dst) => { const to = `${dst ? `${into(dst)}/` : ""}${src.name}`; if (to !== src.path) api.move(src.path, to).then(() => { reload(); retab(src.path, to); }, fail); },
   };
+  // an example's: what would change it stays in the menu, off, saying why
   const menuFor = (e?: FileEntry): MenuEntry[] => {
+    const items = menuItems(e);
+    return ro ? items.map((m) => (typeof m === "object" && "id" in m && WRITES.has(m.id) ? { ...m, disabled: true, why: LOCKED } : m)) : items;
+  };
+  const menuItems = (e?: FileEntry): MenuEntry[] => {
     if (!e || e.kind === "folder") {
       const dir = into(e);
       return [{ id: "new", label: "New script here", shortcut: "Ctrl N", run: () => newScript(dir) }, { id: "folder", label: "New folder here", run: () => newFolder(dir) },
@@ -482,9 +500,9 @@ export function App() {
       noun: "script", workspace: ws, file: !!current, hubs: hubs.length > 0, recent: recentItems,
       onNew: () => newScript(), onOpenFile: openFile, onOpenFolder: openFolder, onConnect: connect, onSave: saveNow, onSaveAs: saveAs,
       onCloseFile: () => { if (current) close(current); }, onCloseWorkspace: closeWorkspace, onSettings: () => settings(),
-    }),
-    { id: "edit.undo", label: "Undo", menu: "edit", group: "history", shortcut: "Ctrl Z", enabled: !!doc, why: "no script open", run: () => { const v = view(); if (v) undo(v); } },
-    { id: "edit.redo", label: "Redo", menu: "edit", group: "history", shortcut: "Ctrl Shift Z", enabled: !!doc, why: "no script open", run: () => { const v = view(); if (v) redo(v); } },
+    }).map((c) => (ro && (c.id === "file.new" || c.id === "file.save") ? { ...c, enabled: false, why: LOCKED } : c)),
+    { id: "edit.undo", label: "Undo", menu: "edit", group: "history", shortcut: "Ctrl Z", enabled: !!doc && !ro, why: ro ? LOCKED : "no script open", run: () => { const v = view(); if (v) undo(v); } },
+    { id: "edit.redo", label: "Redo", menu: "edit", group: "history", shortcut: "Ctrl Shift Z", enabled: !!doc && !ro, why: ro ? LOCKED : "no script open", run: () => { const v = view(); if (v) redo(v); } },
     { id: "edit.find", label: "Find and replace…", menu: "edit", group: "find", shortcut: "Ctrl F", enabled: !!doc, why: "no script open", run: () => { const v = view(); if (v) openSearchPanel(v); } },
     { id: "view.search", label: "Search…", menu: "view", group: "search", shortcut: "Ctrl K", chord: SEARCH_CHORD, quiet: true, run: () => setSearch((x) => !x) },
     ...PANELS.map((p): Command => ({ id: `view.${p.name.toLowerCase()}`, label: p.name, menu: "view", group: "panels", shortcut: p.keys, chord: CHORDS[p.side], checked: !hidden[p.side], run: () => toggle(p.side) })),
@@ -564,14 +582,14 @@ export function App() {
       </section></div></main>}
       {ws && <main className="ws">
         <Panel name="Files" count={`${files(tree.files).length}`} side="left" hidden={hidden.l} onHidden={(h) => toggle("l", h)} icon="folder" width={FILES_W} className="filesp"
-          tools={<><Key size="sm" kind="quiet" round icon="new-file" label="New script (Ctrl N)" onClick={() => newScript("")} /><Key size="sm" kind="quiet" round icon="new-folder" label="New folder" onClick={() => newFolder("")} /></>}>
+          tools={ro ? undefined : <><Key size="sm" kind="quiet" round icon="new-file" label="New script (Ctrl N)" onClick={() => newScript("")} /><Key size="sm" kind="quiet" round icon="new-folder" label="New folder" onClick={() => newFolder("")} /></>}>
           <FileTree entries={rows(tree.files)} active={current ?? undefined} actions={treeActions} menu={menuFor} ariaLabel="Files"
             labels={{ newFile: "New script", empty: "No files yet: make a script (Ctrl N), or open an example (Ctrl K)." }} />
           <div className="sfoot" title={ws.root}>{ws.kind === "hub" ? <><HubMark size={14} /><code>history kept by Malachite</code></> : <><FolderGlyph /><code>{tilde(ws.root, home)}</code></>}</div>
         </Panel>
 
         <div className="mid bay">
-          {opened && <ExampleBanner name={opened.name} folder={opened.to && tilde(opened.to, home)} cache={opened.cache} onCopy={copyExample} />}
+          {example && <ExampleBanner name={example.name} folder={example.to && tilde(example.to, home)} cache={example.cache} onCopy={copyExample} />}
           <Split className={`top${hidden.f ? " fig-hidden" : ""}`} sized="end" size={hidden.f ? 38 : figW} defaultSize={figWidth()} min={320} otherMin={320}
             onSize={setFigW} onHidden={() => toggle("f", true)} label="Figure width">
             <section className="panel ed" aria-label="Script">
@@ -587,7 +605,7 @@ export function App() {
                   onContinue={() => command("continue")} onPause={() => command("pause")} onStepOver={() => command("over")} onStepInto={() => command("into")}
                   onStepOut={() => command("out")} onStop={() => command("stop")} />}
                 {!current && <div className="empty-state"><div className="welcome"><AppMark app="julix" size={72} idle label="" /><p>Open a script, or make one. The examples open from Ctrl K: Open example.</p>
-                  <span><Key kind="primary" icon="new-file" onClick={() => newScript("")}>New script</Key></span></div></div>}
+                  {!ro && <span><Key kind="primary" icon="new-file" onClick={() => newScript("")}>New script</Key></span>}</div></div>}
                 {doc && doc.path === current && (IMAGE.has(typeOf(doc.path))
                   ? <p className="empty-state">An image: Julix edits scripts and text.</p>
                   : <Code key={`${doc.path}:${doc.v}`} path={doc.path} text={text} onChange={setDraft}
@@ -595,7 +613,7 @@ export function App() {
                       breakpoints={bps[doc.path]} onBreakpoint={(l) => toggleBreakpoint(doc.path, l)}
                       onBreakpointMenu={(line, x, y) => setBpAt({ path: doc.path, line, x, y })} stopAt={paused?.source === doc.path ? paused.line : undefined}
                       results={results[doc.path]} variables={variables} onFigure={(run, n) => { setShown({ run, n }); toggle("f", false); }} appTheme={appTheme}
-                      session={session === "running" ? juliaSession : undefined}
+                      session={session === "running" ? juliaSession : undefined} readOnly={ro}
                       run={{ cell: (c, l) => run("cell", c, l), line: (c, l) => run("line", c, l), file: () => run("file"), save: () => draft !== null && current && save(current, draft) }} />)}
               </div>
               {doc && isJl && (

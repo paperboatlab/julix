@@ -2,11 +2,13 @@
 // there is no daemon to start: set PAPERBOATD, or have paperboatd on PATH. The first run pulls and
 // compiles, so it is slow once.
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
 import { Control } from "../server/control.ts";
+import { scratchFor } from "../server/examples.ts";
 import { Folder } from "../server/folder.ts";
 import { depsVolume } from "../server/packages.ts";
 import { Sessions, type Run } from "../server/session.ts";
@@ -107,10 +109,17 @@ test("a fresh deps volume gets JulixPlot before the first session: added to a ne
   const ra = await done(sa.run("console", "console", using));
   sa.close();
   assert.equal(ra.state, "done", JSON.stringify(ra.outputs));
-  // the same Project and Manifest in another folder (an example's, read-only): its deps volume is a fresh one,
-  // which gets the Manifest's packages without the folder being written
-  const b = new Folder(fs.mkdtempSync(path.join(os.tmpdir(), "julix-e2e-example-")));
-  for (const f of ["Project.toml", "Manifest.toml"]) fs.copyFileSync(path.join(a.root, f), path.join(b.root, f));
+  // the same Project and Manifest as an example opened in place (read-only, in a paperboat-examples checkout): its
+  // deps volume is a fresh one, which gets the Manifest's packages without the example being written
+  const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "julix-e2e-example-")));
+  const root = path.join(tmp, "paperboat-examples"), ex = path.join(root, "julix", "03-plot");
+  fs.mkdirSync(ex, { recursive: true });
+  fs.writeFileSync(path.join(ex, "example.toml"), 'kind = "julix"\napp = "julix"\nname = "03 Plot"\n');
+  for (const f of ["Project.toml", "Manifest.toml"]) fs.copyFileSync(path.join(a.root, f), path.join(ex, f));
+  const g = (...args: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], { cwd: root, encoding: "utf8" });
+  g("init", "-q"); g("add", "."); g("commit", "-qm", "examples");
+  const b = new Folder(ex, { locked: (p) => p === root || p.startsWith(root + path.sep), scratch: scratchFor });
+  assert.equal(b.readOnly, true);
   const manifest = fs.readFileSync(path.join(b.root, "Manifest.toml"), "utf8");
   fs.chmodSync(b.root, 0o555);
   const events: Record<string, unknown>[] = [];
@@ -123,9 +132,53 @@ test("a fresh deps volume gets JulixPlot before the first session: added to a ne
     assert.match(JSON.stringify(rb.outputs), /\/work\/deps\/packages\/JulixPlot\//);
     assert.ok(events.some((e) => e.type === "session" && /from the Manifest/.test(String(e.detail))), "the start says it installs");
     assert.equal(fs.readFileSync(path.join(b.root, "Manifest.toml"), "utf8"), manifest);
-    assert.deepEqual(fs.readdirSync(b.root).sort(), ["Manifest.toml", "Project.toml"]);
+    assert.deepEqual(fs.readdirSync(b.root).sort(), ["Manifest.toml", "Project.toml", "example.toml"]);
+    assert.equal(g("status", "--porcelain", "--ignored"), "");
   } finally {
     sb.close();
     fs.chmodSync(b.root, 0o755);
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("an example run in place leaves its checkout byte for byte as git has it (paperboat#75)", { skip: !daemon && "no paperboatd", timeout: 600_000 }, async () => {
+  const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "julix-e2e-ex-")));
+  const root = path.join(tmp, "paperboat-examples"), ex = path.join(root, "julix", "01-out");
+  fs.mkdirSync(path.join(ex, "sub"), { recursive: true });
+  fs.writeFileSync(path.join(ex, "example.toml"), 'kind = "julix"\napp = "julix"\nname = "01 Out"\n');
+  fs.writeFileSync(path.join(ex, "Project.toml"), "[deps]\n");
+  fs.writeFileSync(path.join(ex, "sub", "data.txt"), "42\n");
+  // what the examples do: read beside themselves, write out/, show a figure
+  fs.writeFileSync(path.join(ex, "sub", "main.jl"), `n = parse(Int, strip(read("data.txt", String)))
+mkpath("out"); write("out/results.toml", "n = $n\\n"); write("beside.txt", "x")
+struct Pic end
+Base.show(io::IO, ::MIME"image/svg+xml", ::Pic) = print(io, "<svg xmlns='http://www.w3.org/2000/svg'/>")
+display(Pic())
+println(n, " ", read("out/results.toml", String) |> strip, " ", startswith(pwd(), ENV["PAPERBOAT_PROJECT"]))
+`);
+  const g = (...a: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...a], { cwd: root, encoding: "utf8" });
+  g("init", "-q"); g("add", "."); g("commit", "-qm", "examples");
+  const folder = new Folder(ex, { locked: (p) => p === root || p.startsWith(root + path.sep), scratch: scratchFor });
+  const events: Record<string, unknown>[] = [];
+  const s = new Sessions(folder, new Control(), (e) => events.push(e));
+  try {
+    assert.equal(folder.readOnly, true);
+    const a = await done(s.run("file", "sub/main.jl", fs.readFileSync(path.join(ex, "sub", "main.jl"), "utf8")));
+    assert.equal(a.state, "done", JSON.stringify(a.outputs));
+    assert.deepEqual(a.outputs.filter((o) => o.type === "stream"), [{ type: "stream", name: "stdout", text: "42 n = 42 false\n" }]);
+    assert.deepEqual(a.outputs.filter((o) => o.type === "figure"), [{ type: "figure", n: 1, mime: "image/svg+xml" }]);
+    assert.ok(s.figureFile(a.id, 1).startsWith(folder.data) && !folder.data.startsWith(root), folder.data);
+    // a cell and the console, in the same scratch copy: what the run wrote is there
+    const c = await done(s.run("cell", "sub/main.jl", 'println(read("out/results.toml", String))', 1));
+    assert.equal(c.state, "done", JSON.stringify(c.outputs));
+    const k = await done(s.run("console", "console", 'isfile("sub/out/results.toml")'));
+    assert.deepEqual(k.outputs, [{ type: "result", data: { "text/plain": "true" } }]);
+    assert.equal(g("status", "--porcelain", "--ignored"), "");   // nothing new, nothing changed, not even an ignored file
+    // its Project.toml lists no JulixPlot, and none was added: an example runs with the packages it lists
+    assert.ok(!events.some((e) => e.type === "session" && /JulixPlot/.test(String(e.detail))), JSON.stringify(events.filter((e) => e.type === "session")));
+  } finally {
+    s.close();
+    fs.rmSync(folder.data, { recursive: true, force: true });
+    fs.rmSync(tmp, { recursive: true, force: true });
   }
 });

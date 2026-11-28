@@ -204,7 +204,7 @@ function debugging(bps: Breakpoint[], stop: number | undefined, toggle: (line: n
 export type Runner = { cell: (code: string, line: number) => void; line: (code: string, line: number) => void; file: () => void; save: () => void };
 
 /** One file per mount: the caller remounts (`key`) for another file or a copy changed on disk. */
-export function Code({ path, text, onChange, onPos, run, busy, results, variables, onFigure, breakpoints, onBreakpoint, onBreakpointMenu, stopAt, session, settings, appTheme }: {
+export function Code({ path, text, onChange, onPos, run, busy, results, variables, onFigure, breakpoints, onBreakpoint, onBreakpointMenu, stopAt, session, settings, appTheme, readOnly }: {
   path: string; text: string; onChange: (t: string) => void; onPos: (p: EditorPos) => void; run: Runner;
   /** The lines a run of this file is running now. */
   busy?: { from: number; to: number };
@@ -213,6 +213,8 @@ export function Code({ path, text, onChange, onPos, run, busy, results, variable
   /** This file's breakpoints, F9 or a gutter click toggling one, a right click on the gutter, and the line a debug run waits at. */
   breakpoints?: Breakpoint[]; onBreakpoint?: (line: number) => void; onBreakpointMenu?: (line: number, x: number, y: number) => void; stopAt?: number;
   session?: Session; settings: EditorSettings; appTheme: "light" | "dark";
+  /** An example opened in place: it runs as it is and takes no edit (the banner's Copy makes one to change). */
+  readOnly?: boolean;
 }) {
   const r = useRef(run);
   r.current = run;
@@ -248,6 +250,6 @@ export function Code({ path, text, onChange, onPos, run, busy, results, variable
   [language, busy?.from, busy?.to, results, variables, breakpoints, stopAt]);
   return (
     <Editor value={text} onChange={onChange} onPos={onPos} language={language} session={language.runtime === "julia" ? session : undefined}
-      settings={settings} appTheme={appTheme} ariaLabel={path} keys={keys} extra={extra} />
+      settings={settings} appTheme={appTheme} ariaLabel={path} keys={keys} extra={extra} readOnly={readOnly} />
   );
 }

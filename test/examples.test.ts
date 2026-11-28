@@ -58,9 +58,17 @@ esac
       "hub list --json", `example open julix/01-matrices --to ${work} --json`,
       "example open julix/01-matrices --to /there --json", "example open julix/01-matrices --json",
     ]);
+    // read once, as the server starts (the examples' folders are the read-only ones, server/examples.ts)
+    assert.deepEqual(await call("GET", "/api/examples"), { status: 200, json: [ENTRY] });
+    assert.equal(fs.readFileSync(seen, "utf8").split("\n").filter((l) => l.startsWith("example list")).length, 1);
     // no Paperboat: no examples, and Julix works on
     process.env.PAPERBOAT_BIN = path.join(tmp, "no-such-paperboat");
-    assert.deepEqual(await call("GET", "/api/examples"), { status: 200, json: [] });
+    const bare = serve(null, 0).server;
+    try {
+      await new Promise((r) => bare.once("listening", r));
+      const r = await fetch(`http://127.0.0.1:${(bare.address() as { port: number }).port}/api/examples`);
+      assert.deepEqual(await r.json(), []);
+    } finally { bare.close(); }
   } finally {
     server.close();
     for (const [k, v] of Object.entries(env)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
