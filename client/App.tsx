@@ -6,7 +6,7 @@ import {
   About, AppMark, DebugDock, DEBUG_KEYS, Dialog, HelpWindow, Icon, Key, Menu, MenuBar, Notifications, Panel, PanelsKey, SEARCH_CHORD, Search, SettingRow, Settings, SettingsSection, ScaleSetting, ShortcutList, Spinner, Split, ThemeSetting, Toasts, WindowKeys, ExampleBanner, exampleCommands, exampleFromUrl, isScale, readStored, useScale, useShortcuts, useTheme, useToasts, writeStored,
   type Command, type Credit, type Example, type Scale, type HelpProvider, type MenuEntry, type PaneRect, type SearchItem, type Theme,
 } from "@paperboatlab/ui";
-import { EditorSettingsPane, EditorTabs, afterClose, orderTabs, tabMenu, useEditorSettings, type EditorPos } from "@paperboatlab/ui/editor";
+import { EditorSettingsPane, EditorTabs, afterClose, editorKeyCommands, orderTabs, tabMenu, useEditorSettings, type EditorPos } from "@paperboatlab/ui/editor";
 import { FileTree, fileIconFor, type FileActions, type FileEntry } from "@paperboatlab/ui/files";
 import { ConnectHub, HubMark, OpenFile, SaveFile, type Hub } from "@paperboatlab/ui/hub";
 import { AskOpen, Start, TypedPath, Unsaved, WorkspaceWell, baseName, fileMenu, recentFor, recentMenu, shell, tilde, useOpening, type Opening, type RecentEntry } from "@paperboatlab/ui/workspace";
@@ -578,6 +578,7 @@ export function App() {
     { id: "edit.undo", label: "Undo", menu: "edit", group: "history", shortcut: "Ctrl Z", enabled: !!doc && !ro, why: ro ? LOCKED : "no script open", run: () => { const v = view(); if (v) undo(v); } },
     { id: "edit.redo", label: "Redo", menu: "edit", group: "history", shortcut: "Ctrl Shift Z", enabled: !!doc && !ro, why: ro ? LOCKED : "no script open", run: () => { const v = view(); if (v) redo(v); } },
     { id: "edit.find", label: "Find and replace…", menu: "edit", group: "find", shortcut: "Ctrl F", enabled: !!doc, why: "no script open", run: () => { const v = view(); if (v) openSearchPanel(v); } },
+    ...editorKeyCommands(editor, setEditor),  // Editor keys: Standard, Vim, Helix (Settings › Editor › Keys)
     { id: "view.search", label: "Search…", menu: "view", group: "search", shortcut: "Ctrl K", chord: SEARCH_CHORD, quiet: true, run: () => setSearch((x) => !x) },
     ...PANELS.map((p): Command => ({ id: `view.${p.name.toLowerCase()}`, label: p.name, menu: "view", group: "panels", shortcut: p.keys, chord: CHORDS[p.side], checked: !hidden[p.side], run: () => toggle(p.side) })),
     ...(["light", "dark", "system"] as Theme[]).map((t): Command => ({ id: `view.theme.${t}`, label: t[0].toUpperCase() + t.slice(1), menu: "view", group: "theme", checked: theme === t, run: () => setTheme(t) })),
