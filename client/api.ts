@@ -114,38 +114,17 @@ export function listen(on: (e: any) => void): () => void {
   return () => es.close();
 }
 
-/** The Julia session as the kit's editor and languages speak to it (paperboat-runtime/0 `lint`, `complete`),
- *  through the server. Pass it only while a session runs: without one the server has no answer. */
 /** julix.toml as the kit's editor settings read and write it (useEditorSettings). */
 export const config: ConfigStore = { read: () => api.config(), write: (text) => api.setConfig(text).then(() => undefined) };
 
+/** The Julia session as the kit's editor and languages speak to it (paperboat-runtime/0 `lint`, `complete`),
+ *  through the server. Pass it only while a session runs: without one the server has no answer. A completion
+ *  comes with the statement at the cursor, not the whole script: the kit's editor cuts it (completionText). */
+
 export const session: Session = {
   request: async (op, args) => {
-    const near = op === "complete" && typeof args.code === "string" && typeof args.pos === "number" ? around(args.code, args.pos) : null;
-    const r = await call<{ result: unknown }>("POST", "/api/session", { op, args: near ? { ...args, code: near.code, pos: near.pos } : args });
+    const r = await call<{ result: unknown }>("POST", "/api/session", { op, args });
     if (r.result === null) throw new Error("no Julia session yet");
-    if (!near) return r.result;
-    const m = r.result as { start: number; end: number };   // byte offsets into what was sent: back into the script
-    return { ...m, start: m.start + near.skip, end: m.end + near.skip };
+    return r.result;
   },
 };
-
-const utf8 = new TextEncoder();
-/** What a completion needs of a script (`pos`: the cursor, a UTF-8 byte offset, as paperboat-runtime/0 counts): the
- *  statement the cursor is in, from the last line that starts one (no indent, not `end`), at most COMPLETE_LINES
- *  back, to the cursor. Julia completes from what is before the cursor; the whole file went with every key. `skip`:
- *  the bytes left out before it. */
-export function around(code: string, pos: number): { code: string; pos: number; skip: number } | null {
-  const bytes = utf8.encode(code);
-  if (bytes.length < 4096 || pos > bytes.length) return null;   // a small script goes whole
-  const before = new TextDecoder().decode(bytes.subarray(0, pos));
-  let cut = before.lastIndexOf("\n") + 1;   // the cursor's line
-  for (let n = 0; cut > 0 && n < COMPLETE_LINES; n++) {
-    const line = before.slice(cut, before.indexOf("\n", cut) < 0 ? undefined : before.indexOf("\n", cut));
-    if (/^[^\s#]/.test(line) && !/^end\b/.test(line)) break;
-    cut = before.lastIndexOf("\n", cut - 2) + 1;
-  }
-  const skip = utf8.encode(before.slice(0, cut)).length;
-  return { code: before.slice(cut), pos: pos - skip, skip };
-}
-const COMPLETE_LINES = 200;
