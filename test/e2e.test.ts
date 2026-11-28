@@ -7,8 +7,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test } from "node:test";
-import { Control } from "../server/control.ts";
-import { scratchFor } from "../server/examples.ts";
+import { Control, type Lease } from "../server/control.ts";
+import { Examples, scratchFor } from "../server/examples.ts";
 import { Folder } from "../server/folder.ts";
 import { depsVolume } from "../server/packages.ts";
 import { Sessions, type Run } from "../server/session.ts";
@@ -140,7 +140,7 @@ test("a fresh deps volume gets JulixPlot before the first session: added to a ne
   try {
     const rb = await done(sb.run("console", "console", using));
     assert.equal(rb.state, "done", JSON.stringify(rb.outputs));
-    assert.match(JSON.stringify(rb.outputs), /\/work\/deps\/packages\/JulixPlot\//);
+    assert.match(JSON.stringify(rb.outputs), /\/deps\/(?:[^"]*\/)?packages\/JulixPlot\//);   // the deps volume's: /work/deps in a container, the state folder's natively
     assert.ok(events.some((e) => e.type === "session" && /from the Manifest/.test(String(e.detail))), "the start says it installs");
     assert.equal(fs.readFileSync(path.join(b.root, "Manifest.toml"), "utf8"), manifest);
     assert.deepEqual(fs.readdirSync(b.root).sort(), ["Manifest.toml", "Project.toml", "example.toml"]);
@@ -190,6 +190,60 @@ println(n, " ", read("out/results.toml", String) |> strip, " ", startswith(pwd()
     assert.equal(g("status", "--porcelain", "--ignored"), "");   // nothing new, nothing changed, not even an ignored file
     // its Project.toml lists no JulixPlot, and none was added: an example runs with the packages it lists
     assert.ok(!events.some((e) => e.type === "session" && /JulixPlot/.test(String(e.detail))), JSON.stringify(events.filter((e) => e.type === "session")));
+  } finally {
+    s.close();
+    fs.rmSync(folder.data, { recursive: true, force: true });
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("an example's lease is read-only: a write into it by absolute path is refused, its scratch takes writes (paperboat#85)", { skip: !daemon && "no paperboatd", timeout: 600_000 }, async (t) => {
+  const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "julix-e2e-ro-")));
+  const root = path.join(tmp, "paperboat-examples"), ex = path.join(root, "julix", "05-ro");
+  fs.mkdirSync(path.join(ex, "sub"), { recursive: true });
+  fs.writeFileSync(path.join(ex, "example.toml"), 'kind = "julix"\napp = "julix"\nname = "05 Read-only"\n');
+  fs.writeFileSync(path.join(ex, "Project.toml"), "[deps]\n");
+  fs.writeFileSync(path.join(ex, "sub", "data.txt"), "42\n");
+  fs.writeFileSync(path.join(ex, "sub", "main.jl"), 'mkpath("out"); write("out/r.txt", "1"); write(joinpath(tempdir(), "julix-ro.txt"), "1"); println(read("data.txt", String) |> strip)\n');
+  const g = (...a: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...a], { cwd: root, encoding: "utf8" });
+  g("init", "-q"); g("add", "."); g("commit", "-qm", "examples");
+  // as `paperboat example open julix/05-ro` starts the server: $PAPERBOAT_EXAMPLE, on the example's folder
+  const known = new Examples(async () => [], { id: "julix/05-ro", folder: ex });
+  await known.ready;
+  const folder = new Folder(ex, { locked: (p) => known.locked(p), scratch: scratchFor });
+  assert.equal(folder.readOnly, true);
+  const control = new Control();
+  const s = new Sessions(folder, control, () => {});
+  try {
+    // the script runs, writing beside itself (its scratch copy) and to the temp folder
+    const a = await done(s.run("file", "sub/main.jl", fs.readFileSync(path.join(ex, "sub", "main.jl"), "utf8")));
+    assert.equal(a.state, "done", JSON.stringify(a.outputs));
+    assert.deepEqual(a.outputs, [{ type: "stream", name: "stdout", text: "42\n" }]);
+    const lease = (await control.call<Lease[]>("ps")).find((l) => l.owner === `julix:${ex}`);
+    assert.ok(lease, "the session's lease");
+    if (lease.readonly !== true) { t.skip(`paperboatd ${lease.id}: no read-only projects (v0.2.0-beta.9 or later has them)`); return; }
+    t.diagnostic(`backend ${lease.backend}`);
+    // the example itself, by its absolute path: the runtime's own path to it, and natively the host's too
+    const P = 'ENV["PAPERBOAT_PROJECT"]';
+    const writes = [
+      `write(joinpath(${P}, "sub", "new.txt"), "x")`,
+      `open(io -> print(io, "x"), joinpath(${P}, "sub", "data.txt"), "w")`,   // truncates an existing file
+      `open(io -> print(io, "x"), joinpath(${P}, "sub", "data.txt"), "a")`,
+      `mkdir(joinpath(${P}, "made"))`,
+      `rm(joinpath(${P}, "sub", "data.txt"))`,
+      ...(lease.backend === "native" ? [`write(${JSON.stringify(path.join(ex, "host.txt"))}, "x")`] : []),
+    ];
+    for (const [i, code] of writes.entries()) {
+      const kind = (["cell", "file", "console"] as const)[i % 3];
+      const r = await done(s.run(kind, kind === "console" ? "console" : "sub/main.jl", code));
+      assert.equal(r.state, "failed", `${kind} ${code}: ${JSON.stringify(r.outputs)}`);
+      assert.match(JSON.stringify(r.outputs), /is read-only: it is an example; copy it/, `${kind} ${code}`);
+    }
+    // the scratch copy still takes writes, and what the script wrote is there
+    const k = await done(s.run("console", "console", 'write("sub/after.txt", "y"); (read("sub/out/r.txt", String), isfile(joinpath(tempdir(), "julix-ro.txt")))'));
+    assert.deepEqual(k.outputs, [{ type: "result", data: { "text/plain": '("1", true)' } }], JSON.stringify(k.outputs));
+    assert.equal(fs.readFileSync(path.join(ex, "sub", "data.txt"), "utf8"), "42\n");
+    assert.equal(g("status", "--porcelain", "--ignored"), "");   // byte for byte as git has it
   } finally {
     s.close();
     fs.rmSync(folder.data, { recursive: true, force: true });

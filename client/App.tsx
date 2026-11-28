@@ -133,7 +133,8 @@ export function App() {
   const [info, setInfo] = useState<{ workspace: Place | null; home: string; version: string }>();
   const ws = info?.workspace ?? null;
   // an example opened in place is read-only (the server refuses every write in it too): it runs as it is, and
-  // the banner's Copy makes one to change. The example: as its URL says (paperboat example open), else as the server knows it.
+  // the banner's Copy makes one to change. The example: as its URL says (paperboat example open), else as the server
+  // knows it ($PAPERBOAT_EXAMPLE, paperboat#85), so a window opened without ?example= has the banner and Copy too.
   const ro = !!ws?.readOnly;
   const example = opened ?? (ws?.example ? { ...ws.example, to: undefined } : null);
   const LOCKED = "an example: copy it to change it";

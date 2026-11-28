@@ -81,18 +81,25 @@ flowchart LR
   kit's `ExampleBanner` at the top of the bay; its Copy is `POST /api/examples/copy {id, to}` (`to`: a whole path),
   `paperboat example copy <id> --to <to> --open`, into `to` or, with none, a folder picked as Open folder… picks.
   The CLI's error goes to the page as a toast. With `--json` the CLI says why it failed as `{error}`, which `paperboat()` reports.
-- `server/examples.ts`: an example opened in place is read-only. The platform starts this server on the example's
-  folder and tells only the page (its URL), so the server finds out itself: `Examples` knows the examples' roots
-  (`$PAPERBOAT_HOME/cache/examples`, `$PAPERBOAT_EXAMPLES_DIR`, and `<root>` of every `<root>/<group>/<example>` that
-  `example list` gives, read once as the server starts, which `GET /api/examples` serves). A workspace in a root is
-  `readOnly` (with `example: {id, name, cache}`): the `Folder` refuses every write under a root (403, "copy it"),
-  in any workspace; Save as and the banner's Copy refuse a target there; its figures go to a scratch folder
-  (`$TMPDIR/julix-example-<uid>/<hash>`, `Folder.data`); a run's folder is in a copy of the example the session
-  makes once in its own temp folder (`enter(source, true)`: `ENV["JULIX_SCRATCH"]`), so `out/` and the like never land
-  in it; JulixPlot is not added (its Manifest is still instantiated into the deps volume, the project read-only,
-  as for any folder); nothing of it goes into `recent.json`, and `GET /api/recent` and the hub list
-  (`/api/hubs`, Connect to a hub, a file's hub) leave the examples' folders out. The page shows the banner (from the
-  URL, else from `example`), the editor read-only, and Save, New, Rename, Duplicate, Delete, a drag off.
+- `server/examples.ts`: an example opened in place is read-only. `paperboat example open <id>` starts this server
+  on the example's folder with `PAPERBOAT_EXAMPLE=<id>` in its environment (paperboat#85, docs/apps.md; read once
+  as the server starts and not passed on), so the server knows it even when the page's URL has no `?example=`.
+  `Examples` knows the examples' roots: the `root` of every entry `example list --json` gives (read once as the
+  server starts, which `GET /api/examples` serves). An older paperboat (before v0.2.0-beta.9) says neither, and
+  then the roots are guessed as before (`$PAPERBOAT_HOME/cache/examples`, `$PAPERBOAT_EXAMPLES_DIR`, and `<root>` of
+  every listed `<root>/<group>/<example>`), an example under one named by its `example.toml`. The folder the server
+  was started on as an example, or a workspace in a root, is `readOnly` (with `example: {id, name, cache}`): the
+  `Folder` refuses every write there (403, "copy it"), in any workspace; Save as and the banner's Copy refuse a
+  target there; its figures go to a scratch folder (`$TMPDIR/julix-example-<uid>/<hash>`, `Folder.data`); its
+  session and its package install are acquired with `"readonly": true`, so paperboatd keeps the runtime from writing
+  into it on every backend (`:ro` in a container, Landlock natively on Linux, `sandbox-exec` on macOS) and a write by
+  absolute path fails with the runtime's "is read-only: it is an example; copy it" error; a run's folder is in a copy
+  of the example the session makes once in its own temp folder (`enter(source, true)`: `ENV["JULIX_SCRATCH"]`), so
+  what a script writes beside itself (`out/`) works and never lands in it; JulixPlot is not added (its Manifest is
+  still instantiated into the deps volume, the project read-only, as for any folder); nothing of it goes into
+  `recent.json`, and `GET /api/recent` and the hub list (`/api/hubs`, Connect to a hub, a file's hub) leave the
+  examples' folders out. The page shows the banner and Copy (from the URL, else from `example`), the editor
+  read-only, and Save, New, Rename, Duplicate, Delete, a drag off.
 - `server/store.ts`: the store every app shares under `$PAPERBOAT_HOME` (resolved as paperboat's
   `paths.cpp`): `recent.json` (folders, hubs and files opened, newest first, one per kind and path, 40 at
   most) and `settings.json` (the theme), each written whole to a temp file and renamed; and `julix.toml`

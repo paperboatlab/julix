@@ -12,6 +12,8 @@ export type Lease = {
   id: string; runtime: string; mode: string; owner: string; backend: string;
   state: "starting" | "running" | "idle" | "exited" | "failed"; error?: string;
   ipc: string; digest?: string; verified?: string; uptime_s?: number; idle_s?: number; project?: string;
+  /** The project can be read but not written (paperboat#85, v0.2.0-beta.9): asked for an example's. */
+  readonly?: boolean; work?: string;
 };
 export class ControlError extends Error {}
 

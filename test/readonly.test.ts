@@ -1,5 +1,5 @@
-// An example opened in place is read-only (paperboat#75): the server knows it from where the examples are (the CLI's
-// list, $PAPERBOAT_EXAMPLES_DIR, the cache), refuses every write in it, keeps it out of recent.json and the hub
+// An example opened in place is read-only (paperboat#75, #85): the server knows it from $PAPERBOAT_EXAMPLE and the
+// examples' roots (`root` in the CLI's list; an older CLI's guessed from $PAPERBOAT_EXAMPLES_DIR and the cache), refuses every write in it, keeps it out of recent.json and the hub
 // list, and its banner's Copy makes a normal folder. Its checkout stays as git has it.
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
@@ -63,24 +63,36 @@ test("a Folder refuses every write to an example's path, and keeps its data outs
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 });
 
-test("where the examples are: the CLI's list, $PAPERBOAT_EXAMPLES_DIR, the cache", async () => {
+test("where the examples are: the CLI's `root`; an older CLI's guessed from the list, $PAPERBOAT_EXAMPLES_DIR, the cache", async () => {
   const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "julix-ro-")));
   const env = { PAPERBOAT_HOME: process.env.PAPERBOAT_HOME, PAPERBOAT_EXAMPLES_DIR: process.env.PAPERBOAT_EXAMPLES_DIR };
   try {
-    const { root, ex } = checkout(tmp);
+    const { root, ex, hub } = checkout(tmp);
     process.env.PAPERBOAT_HOME = path.join(tmp, "home"); delete process.env.PAPERBOAT_EXAMPLES_DIR;
     const cached = path.join(tmp, "home", "cache", "examples", "julix", "02-notebook");
     fs.mkdirSync(cached, { recursive: true });
     fs.writeFileSync(path.join(cached, "example.toml"), 'name = "02 Notebook"\n');
-    const listed = new Examples(async () => [{ id: "julix/01-numerics", app: "julix", kind: "julix", name: "01 Numerics", description: "", path: ex },
-      { id: "h1", app: "malachite", kind: "hub", name: "not an example's shape", description: "", path: tmp }]);
+    const entry = { id: "julix/01-numerics", app: "julix", kind: "julix", name: "01 Numerics", description: "", path: ex };
+
+    // paperboat v0.2.0-beta.9 and later: each entry says its root, and only those roots are the examples'
+    const said = new Examples(async () => [{ ...entry, root }]);
+    await said.ready;
+    assert.equal(said.locked(ex), true);
+    assert.equal(said.locked(path.join(ex, "sub", "b.jl")), true);
+    assert.equal(said.locked(hub), true);   // what else is in the root is an example's too
+    assert.equal(said.locked(tmp), false);
+    assert.equal(said.locked(cached), false);   // no more guessing: the cache is a root only when the CLI says so
+    assert.deepEqual(said.at(path.join(ex, "sub")), { id: "julix/01-numerics", name: "01 Numerics", cache: false });
+    assert.equal(said.at(hub), undefined);   // locked, but not a listed example
+
+    // an older CLI (no `root`): the root each listed <root>/<group>/<example> sits in, and always the cache
+    const listed = new Examples(async () => [entry, { id: "h1", app: "malachite", kind: "hub", name: "not an example's shape", description: "", path: tmp }]);
     await listed.ready;
     assert.equal(listed.locked(ex), true);
-    assert.equal(listed.locked(path.join(ex, "sub", "b.jl")), true);
     assert.equal(listed.locked(root), true);
     assert.equal(listed.locked(tmp), false);   // only a <root>/<group>/<example> entry names a root
     assert.deepEqual(listed.at(path.join(ex, "sub")), { id: "julix/01-numerics", name: "01 Numerics", cache: false });
-    assert.deepEqual(listed.at(cached), { id: "julix/02-notebook", name: "02 Notebook", cache: true });   // the cache: always
+    assert.deepEqual(listed.at(cached), { id: "julix/02-notebook", name: "02 Notebook", cache: true });
     // no CLI: $PAPERBOAT_EXAMPLES_DIR, and a folder there with an example.toml is one
     process.env.PAPERBOAT_EXAMPLES_DIR = root;
     const bare = new Examples(async () => { throw new Error("no paperboat"); });
@@ -88,6 +100,28 @@ test("where the examples are: the CLI's list, $PAPERBOAT_EXAMPLES_DIR, the cache
     assert.equal(bare.locked(ex), true);
     assert.deepEqual(bare.at(ex), { id: "julix/01-numerics", name: "01 Numerics", cache: false });
     assert.equal(bare.locked(path.join(tmp, "elsewhere")), false);
+    delete process.env.PAPERBOAT_EXAMPLES_DIR;
+
+    // $PAPERBOAT_EXAMPLE (paperboat#85): the folder the server was started on is that example, wherever it is and
+    // whatever the CLI lists; its name the listed one's, else its example.toml's, else its id
+    const somewhere = path.join(tmp, "somewhere", "03-x");
+    fs.mkdirSync(somewhere, { recursive: true });
+    const flagged = new Examples(async () => [{ ...entry, root }], { id: "julix/03-x", folder: somewhere });
+    await flagged.ready;
+    assert.equal(flagged.locked(somewhere), true);
+    assert.equal(flagged.locked(path.join(somewhere, "a.jl")), true);
+    assert.equal(flagged.locked(path.dirname(somewhere)), false);
+    assert.deepEqual(flagged.at(somewhere), { id: "julix/03-x", name: "julix/03-x", cache: false });
+    fs.writeFileSync(path.join(somewhere, "example.toml"), 'name = "03 X"\n');
+    assert.deepEqual(flagged.at(somewhere), { id: "julix/03-x", name: "03 X", cache: false });
+    const named = new Examples(async () => [{ ...entry, root }], { id: "julix/01-numerics", folder: ex });
+    await named.ready;
+    assert.deepEqual(named.at(ex), { id: "julix/01-numerics", name: "01 Numerics", cache: false });
+    const inCache = new Examples(async () => { throw new Error("no paperboat"); }, { id: "julix/02-notebook", folder: cached });
+    assert.deepEqual(inCache.at(cached), { id: "julix/02-notebook", name: "02 Notebook", cache: true });
+    // no variable, or no folder: nothing is flagged
+    assert.equal(new Examples(async () => [], { folder: somewhere }).locked(somewhere), false);
+    assert.equal(new Examples(async () => [], { id: "julix/03-x", folder: null }).locked(somewhere), false);
   } finally {
     for (const [k, v] of Object.entries(env)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
     fs.rmSync(tmp, { recursive: true, force: true });
@@ -158,6 +192,54 @@ esac
     assert.equal(JSON.parse(fs.readFileSync(path.join(home, "recent.json"), "utf8")).recent[0].path, copy);
     // and the example opened as a folder again is read-only again
     assert.equal((await call("POST", "/api/workspace", { kind: "folder", path: ex })).json.readOnly, true);
+    assert.equal(git(root, "status", "--porcelain", "--ignored"), "");
+  } finally {
+    server.close();
+    for (const [k, v] of Object.entries(env)) if (v === undefined) delete process.env[k]; else process.env[k] = v;
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("the server started with $PAPERBOAT_EXAMPLE: its folder is that example wherever it is, with no ?example= (paperboat#85)", { skip: process.platform === "win32" }, async () => {
+  const tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "julix-ro-")));
+  const { root, ex } = checkout(tmp);
+  const home = path.join(tmp, "home"), cli = path.join(tmp, "paperboat"), plain = path.join(tmp, "plain");
+  fs.mkdirSync(plain);
+  // the CLI says each example's root; this one's folder is elsewhere (an example the list doesn't place under it)
+  const ENTRY = { id: "julix/01-numerics", app: "julix", kind: "julix", name: "01 Numerics", description: "", path: path.join(tmp, "elsewhere"), root: path.join(tmp, "elsewhere-root") };
+  fs.writeFileSync(cli, `#!/bin/sh
+case "$*" in
+  "example list --app julix --json") echo '${JSON.stringify([ENTRY])}' ;;
+  "hub list --json") echo '[]' ;;
+  *) echo '{"error": "no"}'; exit 2 ;;
+esac
+`, { mode: 0o755 });
+  const env = { PAPERBOAT_HOME: process.env.PAPERBOAT_HOME, PAPERBOAT_BIN: process.env.PAPERBOAT_BIN, PAPERBOAT_EXAMPLES_DIR: process.env.PAPERBOAT_EXAMPLES_DIR, PAPERBOAT_EXAMPLE: process.env.PAPERBOAT_EXAMPLE };
+  process.env.PAPERBOAT_HOME = home; process.env.PAPERBOAT_BIN = cli; delete process.env.PAPERBOAT_EXAMPLES_DIR;
+  process.env.PAPERBOAT_EXAMPLE = "julix/01-numerics";   // as `paperboat example open julix/01-numerics` starts it
+  const { server, ready } = serve(ex, 0);
+  try {
+    await new Promise((r) => server.once("listening", r));
+    const port = (server.address() as { port: number }).port;
+    const call = async (method: string, url: string, body?: unknown) => {
+      const r = await fetch(`http://127.0.0.1:${port}${url}`, { method, headers: { "content-type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+      return { status: r.status, json: await r.json() };
+    };
+    await ready;
+    // the page has the banner and Copy from this alone
+    assert.deepEqual((await call("GET", "/api/workspace")).json.workspace,
+      { kind: "folder", root: ex, name: "01 Numerics", readOnly: true, example: { id: "julix/01-numerics", name: "01 Numerics", cache: false } });
+    for (const [method, url, body] of [["PUT", "/api/file?path=main.jl", { text: "x" }], ["POST", "/api/new", { path: "n.jl", text: "" }],
+      ["POST", "/api/saveas", { path: path.join(ex, "sub", "c.jl"), text: "x", new: true }]] as const) {
+      const r = await call(method, url, body);
+      assert.equal(r.status, 403, `${method} ${url}: ${JSON.stringify(r.json)}`);
+      assert.match(r.json.error, /is an example and can't be changed: copy it/);
+    }
+    assert.deepEqual((await call("GET", "/api/recent")).json.recent, []);
+    assert.equal(fs.existsSync(path.join(home, "recent.json")), false);
+    // another folder opened in the same window is a plain one
+    assert.deepEqual((await call("POST", "/api/workspace", { kind: "folder", path: plain })).json, { kind: "folder", root: plain, name: "plain" });
+    assert.equal((await call("PUT", "/api/file?path=a.jl", { text: "1\n" })).status, 200);
     assert.equal(git(root, "status", "--porcelain", "--ignored"), "");
   } finally {
     server.close();
