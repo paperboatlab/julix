@@ -39,7 +39,9 @@ export type Values = { kind: "scalar"; value: number } | { kind: "vector"; value
 /** A Julia string literal: JSON's escapes, and `$` taken literally. */
 const jl = (s: string) => JSON.stringify(s).replaceAll("$", "\\$");
 
-const INTERRUPT_GRACE_MS = 3000;   // after an interrupt with no reply, the session restarts (paperboat docs/runtime.md)
+const INTERRUPT_GRACE_MS = 3000;
+/** How often a run's new output goes to the page (heavy printing: a few events a second, not one per chunk). */
+const OUTPUT_MS = 50;   // after an interrupt with no reply, the session restarts (paperboat docs/runtime.md)
 // A JulixPlot figure first (drawn by the page, interactive), then images; one file per figure.
 export const FIGURE = "application/vnd.paperboat.figure+json";
 const IMAGES = [FIGURE, "image/svg+xml", "image/png"] as const;
@@ -191,7 +193,23 @@ export class Sessions {
   run(kind: Kind, source: string, code: string, line = 1, debug?: { breakpoints: Breakpoint[] }): Run {
     const run: Run = { id: runId(), kind, source, line, code, state: "queued", outputs: [], ...(debug ? { debug: true } : {}) };
     this.runs = [...this.runs.slice(-299), run];
-    const send = () => this.emit({ type: "run", run });
+    // what a run prints and shows goes to the page as it comes, as `output` events: only what is new (stream text
+    // run together), at most every OUTPUT_MS; the whole run goes with each change of its state (queued, running, done)
+    let fresh: Output[] = [], later: NodeJS.Timeout | undefined;
+    const flush = () => {
+      clearTimeout(later); later = undefined;
+      if (fresh.length) this.emit({ type: "output", run: run.id, outputs: fresh });
+      fresh = [];
+    };
+    const put = (o: Output) => {
+      for (const list of [run.outputs, fresh]) {
+        const last = list.at(-1);
+        if (o.type === "stream" && last?.type === "stream" && last.name === o.name) last.text += o.text;
+        else list.push({ ...o });
+      }
+      later ??= setTimeout(flush, OUTPUT_MS);
+    };
+    const send = () => { flush(); this.emit({ type: "run", run }); };
     send();
     let figures = 0;
     const figure = (data: Record<string, string>) => {
@@ -200,7 +218,7 @@ export class Sessions {
       const n = ++figures, dir = this.figuresDir(run.id);
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(path.join(dir, `${n}.${EXT[mime]}`), mime === "image/png" ? Buffer.from(data[mime], "base64") : data[mime]);
-      run.outputs.push({ type: "figure", n, mime });
+      put({ type: "figure", n, mime });
       return true;
     };
     this.queue = this.queue.then(async () => {
@@ -224,12 +242,8 @@ export class Sessions {
             this.emit({ type: "debug", paused: this.paused ?? null, run: run.id });
             return;
           }
-          if (note.type === "stream") {
-            const last = run.outputs.at(-1);
-            if (last?.type === "stream" && last.name === note.name) last.text += note.text;
-            else run.outputs.push({ type: "stream", name: note.name, text: note.text });
-          } else if (note.type === "display" && !figure(note.data)) run.outputs.push({ type: "result", data: note.data });
-          send();
+          if (note.type === "stream") put({ type: "stream", name: note.name, text: note.text });
+          else if (note.type === "display" && !figure(note.data)) put({ type: "result", data: note.data });
         });
         if (result?.data && !figure(result.data)) run.outputs.push({ type: "result", data: result.data });
         if (result?.stopped) run.outputs.push({ type: "stream", name: "stdout", text: "debugging stopped\n" });

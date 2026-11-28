@@ -12,7 +12,7 @@ import { serve } from "../server/main.ts";
 
 // the browser itself, not a wrapper script that outlives close() (Fedora's /usr/bin/chromium-browser)
 const chrome = [process.env.CHROME, "/usr/bin/google-chrome", "/usr/lib64/chromium-browser/chromium-browser", "/usr/lib/chromium/chromium", "/usr/bin/chromium"].find((p) => p && fs.existsSync(p));
-const built = fs.existsSync(new URL("../dist/main.js", import.meta.url));
+const built = fs.existsSync(new URL("../dist/index.html", import.meta.url));
 const skip = process.platform !== "linux" ? "Linux only" : !built ? "no dist/ (npm run build)" : !chrome && "no Chrome (set CHROME)";
 
 test("Vim chosen in Settings: every window has it, i inserts, :w saves, Julix's keys go first", { skip, timeout: 120_000 }, async () => {

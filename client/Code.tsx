@@ -7,17 +7,17 @@ import { rgbHex, sampleColormap } from "@paperboatlab/ui/plot";
 import { Prec, RangeSet, RangeSetBuilder } from "@codemirror/state";
 import { Decoration, EditorView, GutterMarker, ViewPlugin, WidgetType, gutter, type DecorationSet, type KeyBinding, type ViewUpdate } from "@codemirror/view";
 import { useMemo, useRef } from "react";
-import { cellAt, isHead } from "./cells.ts";
+import { cellAround, cellAt, isHead } from "./cells.ts";
 import { api, type Variable } from "./api.ts";
 import { short, type Result } from "./results.ts";
 
 function cellLines(view: EditorView): DecorationSet {
-  const doc = view.state.doc, text = doc.toString(), b = new RangeSetBuilder<Decoration>();
-  const at = text.split("\n").some(isHead) ? cellAt(text, doc.lineAt(view.state.selection.main.head).number) : null;
+  const doc = view.state.doc, b = new RangeSetBuilder<Decoration>();
+  const at = cellAround((n) => doc.line(n).text, doc.lines, doc.lineAt(view.state.selection.main.head).number);
   for (const { from, to } of view.visibleRanges) {
     for (let pos = from; pos <= to;) {
       const line = doc.lineAt(pos);
-      const cls = [isHead(line.text) && "cell-head", at && line.number >= at.cell.from && line.number <= at.cell.to && "cell-cur"].filter(Boolean).join(" ");
+      const cls = [isHead(line.text) && "cell-head", at && line.number >= at.from && line.number <= at.to && "cell-cur"].filter(Boolean).join(" ");
       if (cls) b.add(line.from, line.from, Decoration.line({ class: cls }));
       pos = line.to + 1;
     }

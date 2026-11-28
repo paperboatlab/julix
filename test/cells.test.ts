@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { cellAt, cells } from "../client/cells.ts";
+import { cellAround, cellAt, cells, isHead } from "../client/cells.ts";
 import { atLine } from "../server/session.ts";
 import { ours } from "../client/traceback.ts";
 
@@ -29,4 +29,15 @@ test("code run from line n keeps its line numbers in tracebacks", () => {
 test("a traceback stops at the user's top-level scope, as Julia's REPL", () => {
   const tb = "Stacktrace:\n  [1] error(s::String)\n    @ Base ./error.jl:35\n  [2] top-level scope\n    @ console:1\n  [3] eval\n    @ ./boot.jl:430 [inlined]";
   assert.equal(ours(tb), "Stacktrace:\n  [1] error(s::String)\n    @ Base ./error.jl:35\n  [2] top-level scope\n    @ console:1");
+});
+
+test("cellAround finds the cell cellAt finds, from the line out", () => {
+  const texts = ["x = 1\ny = 2", "## A\nx = 1\n\n## B\ny = 2\n## \n\n## C\n", "a = 1\n## B\nb = 2\n##\n\nc = 3", "\n\n## Only\n", "## first\nx\n"];
+  for (const t of texts) {
+    const lines = t.split("\n");
+    for (let n = 1; n <= lines.length; n++) {
+      const want = cellAt(t, n)?.cell ?? null, got = cellAround((k) => lines[k - 1], lines.length, n);
+      assert.deepEqual(got && { from: got.from, to: got.to, title: got.title }, lines.some(isHead) ? want : null, `${JSON.stringify(t)} line ${n}`);
+    }
+  }
 });

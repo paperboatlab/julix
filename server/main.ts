@@ -90,11 +90,14 @@ export function serve(dir: string | null, port = DEFAULT_PORT, control = new Con
   const userHubs = async () => { await known.ready; return (await hubs()).filter((h) => !known.locked(h.path)); };
   /** The known hub whose folder holds `p` (or is it). */
   const hubOf = async (p: string) => (await userHubs()).find((h) => !h.missing && within(real(h.path), p));
-  /** A folder: a hub when it is one's folder, else a plain folder. */
+  /** A folder: a hub when it is one's folder, else a plain folder. Only a folder that can be a hub's (it holds
+   *  `.malachite/`, or an old hub's `hub.toml`) waits for the hub list: the CLI takes seconds to answer. */
   const openFolder = async (p: string) => {
     const abs = real(absolute(p));
     if (!fs.existsSync(abs) || !fs.statSync(abs).isDirectory()) throw new FolderError(`no folder ${p}`, 404);
-    const h = (await userHubs()).find((x) => !x.missing && real(x.path) === abs);
+    await known.ready;   // whether it is an example's (read-only) is known before it opens
+    const hubLike = fs.existsSync(path.join(abs, ".malachite")) || fs.existsSync(path.join(abs, "hub.toml"));
+    const h = hubLike ? (await userHubs()).find((x) => !x.missing && real(x.path) === abs) : undefined;
     return workIn(abs, h);
   };
   /** A file from anywhere: inside the workspace it just opens; from outside, the workspace switches to its
@@ -123,7 +126,7 @@ export function serve(dir: string | null, port = DEFAULT_PORT, control = new Con
     try {
       if (!hosts().includes(req.headers.host ?? "")) return send(res, 421, { error: "wrong host" });
       if (req.method !== "GET" && req.headers.origin && !hosts().some((h) => req.headers.origin === `http://${h}`)) return send(res, 403, { error: "wrong origin" });
-      if (!url.pathname.startsWith("/api/") && url.pathname !== "/events") return file(res, url.pathname);
+      if (!url.pathname.startsWith("/api/") && url.pathname !== "/events") return file(req, res, url.pathname);
       if (url.pathname === "/events") {
         res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache", connection: "keep-alive" });
         res.write(": julix\n\n");
@@ -311,11 +314,20 @@ function json(req: http.IncomingMessage): Promise<any> {
   });
 }
 
-function file(res: http.ServerResponse, p: string) {
+/** The page's files (dist/). The bundle's are named by their content's hash (scripts/build.ts): the browser keeps
+ *  them; index.html and the mark's frames it asks again (an ETag answers 304 when they're the same). */
+function file(req: http.IncomingMessage, res: http.ServerResponse, p: string) {
   const rel = p === "/" ? "index.html" : decodeURIComponent(p).replace(/^\/+/, "");
   const abs = path.resolve(DIST, rel);
-  if (!abs.startsWith(DIST + path.sep) || !fs.existsSync(abs) || !fs.statSync(abs).isFile()) return send(res, 404, { error: "not found" });
-  res.writeHead(200, { "content-type": TYPES[path.extname(abs)] ?? "application/octet-stream" });
+  let st: fs.Stats | undefined;
+  try { st = abs.startsWith(DIST + path.sep) ? fs.statSync(abs) : undefined; } catch { /* no such file */ }
+  if (!st?.isFile()) return send(res, 404, { error: "not found" });
+  const etag = `"${st.size.toString(36)}-${Math.round(st.mtimeMs).toString(36)}"`;
+  const hashed = /-[A-Z0-9]{8}\.\w+(\.map)?$/.test(rel);
+  const head = { "content-type": TYPES[path.extname(abs)] ?? "application/octet-stream", etag,
+    "cache-control": hashed ? "public, max-age=31536000, immutable" : rel === "index.html" ? "no-cache" : "max-age=3600" };
+  if (req.headers["if-none-match"] === etag) { res.writeHead(304, head); return res.end(); }
+  res.writeHead(200, head);
   fs.createReadStream(abs).pipe(res);
 }
 
