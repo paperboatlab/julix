@@ -34,7 +34,8 @@ export const LIVE_LIMIT = 4096;
 /** A name a station variable can have (Simplicial's `valid_variable_name`; the engine checks the rest). */
 const STATION_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 export type Figure = { run: string; n: number; mime: string; source: string; kind: Kind; time: string; thumb?: boolean };
-type Session = { lease: Lease; rt: Runtime; cwd?: string };
+/** `source`: the file the session last entered (enter), `cell` its absolute path there. */
+type Session = { lease: Lease; rt: Runtime; source?: string; cell?: string };
 export type Values = { kind: "scalar"; value: number } | { kind: "vector"; values: number[] } | { kind: "matrix"; rows: number[][] };
 /** A Julia string literal: JSON's escapes, and `$` taken literally. */
 const jl = (s: string) => JSON.stringify(s).replaceAll("$", "\\$");
@@ -79,14 +80,24 @@ cd(joinpath(ENV["PAPERBOAT_PROJECT"], "")); nothing`;
 /** Code from line `line` (1-based) keeps its line numbers in tracebacks: the lines above become blank. */
 export const atLine = (code: string, line: number) => "\n".repeat(Math.max(0, line - 1)) + code;
 
-/** The folder a run's code starts in: its file's folder in the workspace (the lease mounts the workspace). An
- *  example's (`scratch`): the same folder in a copy of it the session makes once, in its own temp folder (a tmpfs
- *  in a container), so what the code writes beside itself stays out of the example and goes with the session. */
-export function chdir(dir: string, scratch = false): string {
+/** `include` in the session's namespace, as a module's own: the runtime's (a bare `Module(:Session)`) has none. */
+const INCLUDE = "isdefined(@__MODULE__, :include) || Core.eval(@__MODULE__, :(include(p::AbstractString) = Base.include(@__MODULE__, p); include(f::Function, p::AbstractString) = Base.include(f, @__MODULE__, p)))";
+
+/** A run's setup: its code starts in its file's folder in the workspace (the lease mounts the workspace); an
+ *  example's (`scratch`) in the same folder in a copy of it the session makes once, in its own temp folder (a tmpfs
+ *  in a container), so what the code writes beside itself stays out of the example and goes with the session.
+ *  It prints the file's absolute path there, which the run then gives as its cell, so `@__DIR__` and `@__FILE__`
+ *  are the file's own, and sets it as the path a relative `include` resolves against, as `julia file.jl` does
+ *  (even after the code `cd`s). The console (`file` null) is a REPL: it includes from the folder it is in. */
+export function enter(source: string, scratch = false): string {
   const base = scratch
     ? 'get!(ENV, "JULIX_SCRATCH") do; d = joinpath(mktempdir(), basename(ENV["PAPERBOAT_PROJECT"])); cp(ENV["PAPERBOAT_PROJECT"], d); d; end'
     : 'ENV["PAPERBOAT_PROJECT"]';
-  return `cd(joinpath(${base}, ${JSON.stringify(dir).replaceAll("$", "\\$")})); nothing`;
+  const dir = source === "console" ? "" : path.posix.dirname(source) === "." ? "" : path.posix.dirname(source);
+  const cd = `${INCLUDE}; cd(joinpath(${base}, ${jl(dir)}))`;
+  return source === "console"
+    ? `${cd}; delete!(task_local_storage(), :SOURCE_PATH); nothing`
+    : `${cd}; let p = joinpath(pwd(), ${jl(path.posix.basename(source))}); task_local_storage(:SOURCE_PATH, p); print(p); end`;
 }
 
 let seq = 0;
@@ -231,10 +242,13 @@ export class Sessions {
         this.running = run;
         send();
         t0 = Date.now();
-        const dir = source === "console" ? "" : path.posix.dirname(source) === "." ? "" : path.posix.dirname(source);
-        if (s.cwd !== dir) { await s.rt.request("eval", { code: chdir(dir, this.folder.readOnly), cell: "julix: the script's folder" }); s.cwd = dir; }
+        if (s.source !== source) {
+          let cell = "";
+          await s.rt.request("eval", { code: enter(source, this.folder.readOnly), cell: "julix: the script's folder" }, (n) => { if (n.type === "stream") cell += n.text; });
+          s.source = source; s.cell = cell || source;
+        }
         run.runtime = { name: s.rt.hello!.runtime.name, version: s.rt.hello!.runtime.version, backend: s.lease.backend };
-        const args = { code: atLine(code, line), cell: source, ...(debug ? { debug: true, breakpoints: debug.breakpoints } : {}) };
+        const args = { code: atLine(code, line), cell: s.cell!, ...(debug ? { debug: true, breakpoints: debug.breakpoints } : {}) };
         const result = await s.rt.request<{ data: Record<string, string> | null; stopped?: boolean }>("eval", args, (note) => {
           if (note.type === "debug") {
             this.paused = note.event === "stopped" ? { run: run.id, source, reason: String(note.reason), line: Number(note.line),
@@ -268,6 +282,8 @@ export class Sessions {
   async debug(command: string, args: Record<string, unknown> = {}) {
     if (!this.session) return { running: false };
     const s = await this.session;
+    // a file's breakpoints go by its cell (its absolute path), as the debug run set them
+    if (command === "breakpoints" && args.file === s.source) args = { ...args, file: s.cell };
     return s.rt.request("debug", { command, ...args });
   }
 

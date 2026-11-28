@@ -36,8 +36,9 @@ flowchart LR
   first run doesn't pay Julia's compile time. A run sent meanwhile stays queued (the Console: waiting for Julia);
   a session that doesn't start says why (the page's toast offers Retry, `POST /api/session/start`), never retried
   on a loop.
-  A run is a file, a cell, a line or a console expression; runs queue, run in their file's folder, keep
-  their line numbers (`atLine`), stream output (to the page as `output` events: only what is new, at most every
+  A run is a file, a cell, a line or a console expression; runs queue, run in their file's folder with its absolute
+  path there as their cell (`enter`: `@__DIR__`, `@__FILE__` and a relative `include` are the file's, as with
+  `julia file.jl`; the console is a REPL in the folder's root; #46), keep their line numbers (`atLine`), stream output (to the page as `output` events: only what is new, at most every
   50 ms; the whole run with each change of its state), and turn every SVG or PNG display into a figure in
   `.julix/figures/<run>/` (a JulixPlot figure as `<n>.json`: the Paperboat figure MIME, its scene and
   buffers; `<n>.thumb.png` its preview, which the page sends once it has drawn the figure, since the
@@ -87,7 +88,7 @@ flowchart LR
   `readOnly` (with `example: {id, name, cache}`): the `Folder` refuses every write under a root (403, "copy it"),
   in any workspace; Save as and the banner's Copy refuse a target there; its figures go to a scratch folder
   (`$TMPDIR/julix-example-<uid>/<hash>`, `Folder.data`); a run's folder is in a copy of the example the session
-  makes once in its own temp folder (`chdir(dir, true)`: `ENV["JULIX_SCRATCH"]`), so `out/` and the like never land
+  makes once in its own temp folder (`enter(source, true)`: `ENV["JULIX_SCRATCH"]`), so `out/` and the like never land
   in it; JulixPlot is not added (its Manifest is still instantiated into the deps volume, the project read-only,
   as for any folder); nothing of it goes into `recent.json`, and `GET /api/recent` and the hub list
   (`/api/hubs`, Connect to a hub, a file's hub) leave the examples' folders out. The page shows the banner (from the

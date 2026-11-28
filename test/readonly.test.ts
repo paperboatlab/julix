@@ -9,7 +9,7 @@ import path from "node:path";
 import { test } from "node:test";
 import { Examples, scratchFor } from "../server/examples.ts";
 import { Folder, FolderError } from "../server/folder.ts";
-import { chdir } from "../server/session.ts";
+import { enter } from "../server/session.ts";
 import { serve } from "../server/main.ts";
 
 const git = (cwd: string, ...args: string[]) => execFileSync("git", ["-c", "user.name=t", "-c", "user.email=t@t", ...args], { cwd, encoding: "utf8" });
@@ -58,8 +58,8 @@ test("a Folder refuses every write to an example's path, and keeps its data outs
     assert.equal(git(root, "status", "--porcelain", "--ignored"), "");
 
     // a run's folder in an example is in the session's own copy of it
-    assert.match(chdir("sub", true), /JULIX_SCRATCH.*mktempdir\(\).*cp\(ENV\["PAPERBOAT_PROJECT"\], d\).*"sub"/);
-    assert.equal(chdir("sub"), 'cd(joinpath(ENV["PAPERBOAT_PROJECT"], "sub")); nothing');
+    assert.match(enter("sub/main.jl", true), /JULIX_SCRATCH.*mktempdir\(\).*cp\(ENV\["PAPERBOAT_PROJECT"\], d\).*"sub"/);
+    assert.match(enter("sub/main.jl"), /; cd\(joinpath\(ENV\["PAPERBOAT_PROJECT"\], "sub"\)\)/);
   } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 });
 
