@@ -30,7 +30,12 @@ flowchart LR
 
 - `server/folder.ts`: `Folder`: every path through `resolve` (inside the folder, symlinks too), the tree,
   read/write (atomic), create (a free name), rename, duplicate, trash (`.julix/trash`). The examples are not in it.
-- `server/session.ts`: `Sessions`: one Julia session lease for the folder, acquired on the first run.
+- `server/session.ts`: `Sessions`: one Julia session lease for the folder, started as the folder opens (the julix
+  command's `eager`; a test's starts with its first run) and again after Restart, and warmed before it says it is
+  ready (`WARMUP`: JulixPlot loaded and a 2D and 3D figure shown, a value shown, the variables listed; #43), so the
+  first run doesn't pay Julia's compile time. A run sent meanwhile stays queued (the Console: waiting for Julia);
+  a session that doesn't start says why (the page's toast offers Retry, `POST /api/session/start`), never retried
+  on a loop.
   A run is a file, a cell, a line or a console expression; runs queue, run in their file's folder, keep
   their line numbers (`atLine`), stream output, and turn every SVG or PNG display into a figure in
   `.julix/figures/<run>/` (a JulixPlot figure as `<n>.json`: the Paperboat figure MIME, its scene and

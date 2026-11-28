@@ -41,8 +41,10 @@ function absolute(p: string): string {
 }
 
 /** `share`: the session's variables go live to every running Simplicial station (the julix command shares; a test
- *  doesn't, so it never reaches a station the machine is running). */
-export function serve(dir: string | null, port = DEFAULT_PORT, control = new Control(), share: Share | null = null, known = new Examples()) {
+ *  doesn't, so it never reaches a station the machine is running). `eager`: the folder's Julia session starts, warmed
+ *  up, as soon as the folder opens (#43; the julix command's; a test's starts with its first run). An example's starts
+ *  as a run would (server/session.ts: nothing is written into it). */
+export function serve(dir: string | null, port = DEFAULT_PORT, control = new Control(), share: Share | null = null, known = new Examples(), eager = false) {
   let ws: Workspace | null = null;
   let folder: Folder | null = null;
   let sessions: Sessions | null = null;
@@ -71,10 +73,11 @@ export function serve(dir: string | null, port = DEFAULT_PORT, control = new Con
   const workIn = (root: string | null, hub?: { id: string; name: string }): Workspace | null => {
     const r = root && fs.realpathSync(root);
     if (r !== (folder?.root ?? null)) {
-      sessions?.restart(); watcher?.close(); clearTimeout(timer); pending = new Set();
+      sessions?.restart(false); watcher?.close(); clearTimeout(timer); pending = new Set();
       folder = r ? new Folder(r, { locked: (p) => known.locked(p), scratch: scratchFor }) : null;
-      sessions = folder && new Sessions(folder, control, emit);
+      sessions = folder && new Sessions(folder, control, emit, { eager });
       watcher = folder && watch(folder.root);
+      if (eager) sessions?.start();   // Julia starts now, in the background (#43)
     }
     const example = folder?.readOnly ? known.at(folder.root) : undefined;
     ws = folder && { kind: hub ? "hub" : "folder", root: folder.root, name: example?.name ?? hub?.name ?? folder.name, ...(hub ? { hub: hub.id } : {}),
@@ -132,7 +135,7 @@ export function serve(dir: string | null, port = DEFAULT_PORT, control = new Con
       const body = req.method === "GET" ? {} : await json(req);
       const str = (k: string) => { const v = body[k]; if (typeof v !== "string") throw new FolderError(`missing ${k}`); return v; };
       switch (`${req.method} ${url.pathname}`) {   // what works with no workspace (the Start page)
-        case "GET /api/workspace": { await ready; return send(res, 200, { workspace: ws, home: os.homedir(), version: VERSION, session: sessions?.state ?? "stopped" }); }
+        case "GET /api/workspace": { await ready; return send(res, 200, { workspace: ws, home: os.homedir(), version: VERSION, session: sessions?.state ?? "stopped", ...(sessions?.error ? { error: sessions.error } : {}) }); }
         case "POST /api/workspace": {   // { kind: "folder", path } | { kind: "hub", id } | { kind: null }: Close
           if (body.kind === "folder") return send(res, 200, await openFolder(str("path")));
           if (body.kind !== "hub") return send(res, 200, workIn(null));
@@ -250,6 +253,7 @@ export function serve(dir: string | null, port = DEFAULT_PORT, control = new Con
         }
         case "POST /api/interrupt": return send(res, 200, await sessions.interrupt());
         case "POST /api/restart": return send(res, 200, sessions.restart());
+        case "POST /api/session/start": return send(res, 200, sessions.start());   // Retry, after a session that didn't start
         case "GET /api/variables": return send(res, 200, sessions.variables);
         case "GET /api/runs": return send(res, 200, sessions.runs);
         case "POST /api/session": {   // the editor's and console's lint and completion; nothing else reaches the session this way
@@ -325,7 +329,7 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === fs.realpathSync(proces
     process.exit(0);
   }
   if (dir) fs.mkdirSync(dir, { recursive: true });
-  const { server } = serve(dir, port, undefined, new Share());
+  const { server } = serve(dir, port, undefined, new Share(), undefined, true);
   server.on("listening", () => console.log(`Julix${dir ? `: ${path.resolve(dir)}` : ""} on http://127.0.0.1:${port}/`));
   server.on("error", (e) => { console.error(`julix: ${e.message}`); process.exit(1); });
   for (const s of ["SIGINT", "SIGTERM"]) process.on(s, () => { server.close(); process.exit(0); });

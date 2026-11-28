@@ -47,6 +47,33 @@ const EXT: Record<string, string> = { [FIGURE]: "json", "image/svg+xml": "svg", 
 const MIME_OF: Record<string, string> = Object.fromEntries(Object.entries(EXT).map(([m, e]) => [e, m]));
 const OWNER = (f: Folder) => `julix:${f.root}`;
 
+/** What a new session runs before it says it is ready (#43), so the first run doesn't pay Julia's compile time:
+ *  JulixPlot loaded (not bound: the script's own `using` stays the one that brings its names) and a figure drawn
+ *  and shown as a run's would be (2D and 3D, the figure MIME the page draws), a few values shown as a run and
+ *  the variables list show them, and the folder's `cd` every run starts with; then the variables are listed.
+ *  Quiet: what it prints and shows goes nowhere. A folder without JulixPlot warms the rest. */
+export const WARMUP = `let id = Base.identify_package("JulixPlot")
+  if id !== nothing
+    P = Base.require(id)
+    Base.invokelatest() do
+      fig = P.Figure(; size = (400, 300))
+      ax = P.Axis(fig[1, 1]; title = "warm-up", xlabel = "x", ylabel = "y")
+      x = range(0, 1; length = 20)
+      P.lines!(ax, x, sin.(x); label = "a")
+      P.scatter!(ax, x, cos.(x); label = "b")
+      P.axislegend(ax)
+      ax3 = P.Axis3(fig[1, 2])
+      P.surface!(ax3, x[1:5], x[1:5], [sin(a) * cos(b) for a in x[1:5], b in x[1:5]])
+      display(fig)
+    end
+  end
+  display([1.0 2.0; 3.0 4.0])
+  for v in (1, 1.5, true, "text", :a, [1.0, 2.0], [1 2; 3 4], 1:3, range(0, 1; length = 3), (1, 2), nothing)
+    repr(v; context = :limit => true); string(typeof(v)); summary(v)
+  end
+end;
+cd(joinpath(ENV["PAPERBOAT_PROJECT"], "")); nothing`;
+
 /** Code from line `line` (1-based) keeps its line numbers in tracebacks: the lines above become blank. */
 export const atLine = (code: string, line: number) => "\n".repeat(Math.max(0, line - 1)) + code;
 
@@ -74,7 +101,9 @@ export class Sessions {
   variables: Variable[] = [];
   /** Whether Julia is up, for a page that opens later than the event that said so. */
   state: "stopped" | "starting" | "running" = "stopped";
-  private set(state: Sessions["state"]) { this.state = state; this.emit({ type: "session", state }); }
+  /** Why the last session didn't start (the page offers Retry); cleared when one starts. */
+  error?: string;
+  private set(state: Sessions["state"]) { this.state = state; this.emit({ type: "session", state, ...(this.error ? { error: this.error } : {}) }); }
 
   private folder: Folder;
   private control: Control;
@@ -82,7 +111,12 @@ export class Sessions {
   private starting = new Map<string, (e: Error) => void>();
   private emit: (e: Record<string, unknown>) => void;
 
-  constructor(folder: Folder, control: Control, emit: (e: Record<string, unknown>) => void) {
+  /** Whether the session starts as soon as the workspace opens, and again after Restart (#43): the julix command's;
+   *  a test's starts with its first run. */
+  private eager: boolean;
+
+  constructor(folder: Folder, control: Control, emit: (e: Record<string, unknown>) => void, opts: { eager?: boolean } = {}) {
+    this.eager = opts.eager ?? false;
     this.folder = folder;
     this.control = control;
     this.emit = emit;
@@ -97,6 +131,7 @@ export class Sessions {
 
   private open(): Promise<Session> {
     this.session ??= (async () => {
+      this.error = undefined;
       this.set("starting");
       // the folder's packages before the first session (server/packages.ts): JulixPlot added when the project
       // doesn't list it (never to an example's: it runs as it is, with the packages it lists), else what the
@@ -122,12 +157,21 @@ export class Sessions {
       };
       const { lease, rt } = await start().catch(() => start());
       rt.onClose = () => this.drop();
+      // warmed before it is ready: runs sent meanwhile wait for it (a warm-up that fails is only slower)
+      await rt.request("eval", { code: WARMUP, cell: "julix: warm-up" }).catch(() => {});
+      await rt.request("variables").catch(() => {});
+      this.error = undefined;
       this.set("running");
       return { lease, rt };
     })();
-    this.session.catch(() => { this.session = undefined; this.set("stopped"); });
+    // a session that didn't start says why, once: Retry (POST /api/session/start) or the next run tries again
+    this.session.catch((e) => { this.session = undefined; this.error = String((e as Error)?.message ?? e); this.set("stopped"); });
     return this.session;
   }
+
+  /** Starts the session in the background, warmed up, so it is ready by the time the user runs something
+   *  (#43): when the workspace opens, on Retry, and after Restart. Nothing when one runs or is starting. */
+  start() { this.open().catch(() => {}); return {}; }
 
   private drop() {
     const p = this.session;
@@ -135,6 +179,7 @@ export class Sessions {
     this.variables = [];
     this.runs = [];
     this.paused = undefined;
+    this.error = undefined;
     p?.then((s) => { s.rt.close(); this.control.call("release", { lease: s.lease.id }).catch(() => {}); }, () => {});
     this.set("stopped");
     this.emit({ type: "variables", variables: [] });
@@ -159,14 +204,15 @@ export class Sessions {
       return true;
     };
     this.queue = this.queue.then(async () => {
-      run.state = "running";
-      run.started = new Date().toISOString();
-      this.running = run;
-      send();
-      const t0 = Date.now();
       let state: "done" | "failed";
+      let t0 = Date.now();
       try {
-        const s = await this.open();
+        const s = await this.open();   // while Julia starts the run stays queued: the page says it waits for Julia
+        run.state = "running";
+        run.started = new Date().toISOString();
+        this.running = run;
+        send();
+        t0 = Date.now();
         const dir = source === "console" ? "" : path.posix.dirname(source) === "." ? "" : path.posix.dirname(source);
         if (s.cwd !== dir) { await s.rt.request("eval", { code: chdir(dir, this.folder.readOnly), cell: "julix: the script's folder" }); s.cwd = dir; }
         run.runtime = { name: s.rt.hello!.runtime.name, version: s.rt.hello!.runtime.version, backend: s.lease.backend };
@@ -382,8 +428,9 @@ end;`, "help", true);
     return { interrupted: true };
   }
 
-  /** A fresh session: the variables are lost; the next run starts a new one. */
-  restart() { this.drop(); return {}; }
+  /** A fresh session: the variables are lost; an eager one starts again at once, else the next run starts it.
+   *  `again: false` only ends this one (the workspace moved on). */
+  restart(again = true) { this.drop(); if (again && this.eager) this.start(); return {}; }
 
   close() { this.drop(); this.control.close(); }
 

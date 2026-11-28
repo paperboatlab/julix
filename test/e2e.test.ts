@@ -182,3 +182,25 @@ println(n, " ", read("out/results.toml", String) |> strip, " ", startswith(pwd()
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+test("an eager session starts as the folder opens, warmed; a run sent meanwhile waits queued (#43)", { skip: !daemon && "no paperboatd", timeout: 600_000 }, async () => {
+  const folder = new Folder(fs.mkdtempSync(path.join(os.tmpdir(), "julix-e2e-warm-")));
+  fs.writeFileSync(path.join(folder.root, "Project.toml"), '[deps]\nJulixPlot = "a0581f93-fa5f-40d4-84b8-c56ea884187e"\n');   // listed: no install for this test
+  const states: string[] = [];
+  const s = new Sessions(folder, new Control(), (e) => { if (e.type === "session") states.push(String(e.state)); }, { eager: true });
+  try {
+    s.start();
+    assert.equal(s.state, "starting");
+    const r = s.run("line", "a.jl", "x = 1");
+    await new Promise((z) => setTimeout(z, 200));
+    assert.equal(r.state, "queued");   // the page says it waits for Julia
+    await done(r);
+    assert.equal(r.state, "done", JSON.stringify(r.outputs));
+    assert.deepEqual(states.filter((x, i) => x !== states[i - 1]).slice(0, 2), ["starting", "running"]);
+    assert.deepEqual(s.variables.map((v) => v.name), ["x"]);   // the warm-up leaves nothing in the session
+    s.restart();   // Restart starts the next one at once
+    assert.equal(s.state, "starting");
+  } finally {
+    s.close();
+  }
+});

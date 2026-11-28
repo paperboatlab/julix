@@ -45,7 +45,8 @@ const q = encodeURIComponent;
 
 export const api = {
   paperboat: () => call<{ version: string | null }>("GET", "/api/paperboat"),
-  workspace: () => call<{ workspace: Workspace | null; home: string; version: string; session: "stopped" | "starting" | "running" }>("GET", "/api/workspace"),
+  /** `error`: why the folder's session didn't start (Retry is `startSession`). */
+  workspace: () => call<{ workspace: Workspace | null; home: string; version: string; session: "stopped" | "starting" | "running"; error?: string }>("GET", "/api/workspace"),
   /** Work in a folder (a whole path) or a hub (its id); null: Close, back to Start. */
   workIn: (to: { kind: "folder"; path: string } | { kind: "hub"; id: string } | { kind: null }) => call<Workspace | null>("POST", "/api/workspace", to),
   /** A file by its whole path: from outside the workspace, the workspace switches to its folder or hub. */
@@ -90,6 +91,8 @@ export const api = {
   evalIn: (frame: number, code: string) => call<{ type: string; summary: string }>("POST", "/api/debug", { command: "eval", frame, code }),
   interrupt: () => call("POST", "/api/interrupt", {}),
   restart: () => call("POST", "/api/restart", {}),
+  /** Starts the folder's session (Retry, after one that didn't start); the server starts it as the folder opens. */
+  startSession: () => call("POST", "/api/session/start", {}),
   variables: () => call<Variable[]>("GET", "/api/variables"),
   runs: () => call<Run[]>("GET", "/api/runs"),
   values: (name: string) => call<Values | null>("GET", `/api/values?name=${q(name)}`),
