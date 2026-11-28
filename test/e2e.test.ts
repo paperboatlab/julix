@@ -29,6 +29,17 @@ test("a script runs in a Julia session lease: output, figures, variables, errors
     assert.deepEqual(a.outputs, [{ type: "stream", name: "stdout", text: "42 sub\n" }, { type: "result", data: { "text/plain": "42" } }]);
     assert.equal(a.runtime?.name, "julia");
 
+    // @__DIR__, @__FILE__ and a relative include are the file's own, in a subfolder, even after its code cd's (#46):
+    // run whole, a selection and a line of it; the console is a REPL in the folder's root
+    fs.writeFileSync(path.join(folder.root, "sub", "helper.jl"), "helped = basename(@__DIR__)\n");
+    const here = 'println(realpath(@__DIR__) == realpath(joinpath(ENV["PAPERBOAT_PROJECT"], "sub")), " ", basename(@__FILE__), " ", include("helper.jl"))';
+    for (const [kind, line] of [["file", 1], ["cell", 3], ["line", 7]] as const) {
+      const r = await done(s.run(kind, "sub/b.jl", `cd(ENV["PAPERBOAT_PROJECT"]); ${here}`, line));
+      assert.deepEqual(r.outputs, [{ type: "stream", name: "stdout", text: "true b.jl sub\n" }], `${kind}: ${JSON.stringify(r.outputs)}`);
+    }
+    const k = await done(s.run("console", "console", 'println(@__DIR__() == pwd() == realpath(ENV["PAPERBOAT_PROJECT"]), " ", include("sub/helper.jl"))'));
+    assert.deepEqual(k.outputs, [{ type: "stream", name: "stdout", text: "true sub\n" }], JSON.stringify(k.outputs));
+
     // what Simplicial takes (Julix's shared variables): numbers, booleans, text, matrices by rows (a vector a
     // column), a big array with a note; names a station variable can't have and other values left out
     const sv = await done(s.run("console", "console", 'k = 2.5; flag = true; label = "cart"; A = [1 2; 3 4]; v = [1.5, 2.5]; big = zeros(70, 70); θ = 1; f(x) = x'));
@@ -173,6 +184,9 @@ println(n, " ", read("out/results.toml", String) |> strip, " ", startswith(pwd()
     assert.equal(c.state, "done", JSON.stringify(c.outputs));
     const k = await done(s.run("console", "console", 'isfile("sub/out/results.toml")'));
     assert.deepEqual(k.outputs, [{ type: "result", data: { "text/plain": "true" } }]);
+    // @__DIR__ is the file's folder in the scratch copy, where the run wrote out/ (#46)
+    const d = await done(s.run("line", "sub/main.jl", '(@__DIR__() == pwd(), isfile(joinpath(@__DIR__, "out", "results.toml")), startswith(@__FILE__, ENV["PAPERBOAT_PROJECT"]))', 2));
+    assert.deepEqual(d.outputs, [{ type: "result", data: { "text/plain": "(true, true, false)" } }], JSON.stringify(d.outputs));
     assert.equal(g("status", "--porcelain", "--ignored"), "");   // nothing new, nothing changed, not even an ignored file
     // its Project.toml lists no JulixPlot, and none was added: an example runs with the packages it lists
     assert.ok(!events.some((e) => e.type === "session" && /JulixPlot/.test(String(e.detail))), JSON.stringify(events.filter((e) => e.type === "session")));

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { cellAround, cellAt, cells, isHead } from "../client/cells.ts";
-import { atLine } from "../server/session.ts";
+import { atLine, enter } from "../server/session.ts";
 import { ours } from "../client/traceback.ts";
 
 const text = "using LinearAlgebra\n\n## Build\nA = rand(3, 3)\n\n## Solve\nx = A \\ b\n##not a head\n";
@@ -40,4 +40,13 @@ test("cellAround finds the cell cellAt finds, from the line out", () => {
       assert.deepEqual(got && { from: got.from, to: got.to, title: got.title }, lines.some(isHead) ? want : null, `${JSON.stringify(t)} line ${n}`);
     }
   }
+});
+
+test("a run enters its file's folder and gives its absolute path as the cell, so @__DIR__ is the file's own (#46)", () => {
+  assert.match(enter("sub/deep/a.jl"), /; cd\(joinpath\(ENV\["PAPERBOAT_PROJECT"\], "sub\/deep"\)\); let p = joinpath\(pwd\(\), "a.jl"\); task_local_storage\(:SOURCE_PATH, p\); print\(p\); end$/);
+  assert.match(enter("sub/deep/a.jl"), /^isdefined\(@__MODULE__, :include\) \|\| /);   // the session's namespace has no include of its own
+  assert.match(enter("a.jl"), /; cd\(joinpath\(ENV\["PAPERBOAT_PROJECT"\], ""\)\); let p = joinpath\(pwd\(\), "a.jl"\)/);
+  assert.match(enter("$x/a b.jl"), /"\\\$x"\)\).*"a b\.jl"/);
+  // the console is a REPL: the folder's root, no file to include from
+  assert.match(enter("console"), /; cd\(joinpath\(ENV\["PAPERBOAT_PROJECT"\], ""\)\); delete!\(task_local_storage\(\), :SOURCE_PATH\); nothing$/);
 });
