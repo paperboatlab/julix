@@ -2,7 +2,8 @@
 // namespace, as a REPL is). Julix runs no code itself: it asks paperboatd for the lease and speaks the
 // protocol. A run is a file, a cell, a line or an expression; what it displays as an image becomes a
 // figure, kept in `.julix/figures/<run>/` with the run's record beside it. An example (read-only, server/examples.ts)
-// is run as it is in a scratch copy, so what its code writes (`out/`) never lands in it; its figures go to scratch too.
+// runs in a read-only lease (a write into it fails, paperboat#85) and in a scratch copy, so what its code writes
+// beside itself (`out/`) works and never lands in it; its figures go to scratch too.
 import fs from "node:fs";
 import path from "node:path";
 import { Control, type Lease } from "./control.ts";
@@ -161,7 +162,11 @@ export class Sessions {
       }
       // ponytail: one retry; a Julia that ends while starting (seen once, exit 0, no output) usually starts the second time
       const start = async (): Promise<{ lease: Lease; rt: Runtime }> => {
-        const lease = await this.control.call<Lease>("acquire", { runtime: "julia", mode: "session", project: this.folder.root, owner: OWNER(this.folder) });
+        // an example's project is read-only (paperboat#85): paperboatd keeps the runtime from writing into it on every
+        // backend (:ro in a container, Landlock natively), so a write by absolute path fails too; an older paperboatd
+        // ignores it, and the scratch copy (enter) still keeps relative writes out of the example
+        const lease = await this.control.call<Lease>("acquire", { runtime: "julia", mode: "session", project: this.folder.root, owner: OWNER(this.folder),
+          ...(this.folder.readOnly ? { readonly: true } : {}) });
         if (lease.state === "failed") throw new Error(lease.error ?? "Julia failed to start");
         const ended = new Promise<never>((_, reject) => this.starting.set(lease.id, reject));
         try { return { lease, rt: await Promise.race([Runtime.connect(path.join(lease.ipc, "runtime.sock"), 120_000), ended]) }; }

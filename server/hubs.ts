@@ -39,8 +39,8 @@ export async function hubs(): Promise<HubInfo[]> {
   }));
 }
 
-/** An example as `example list` gives it (paperboat#72). */
-export type Example = { id: string; app: string; kind: string; name: string; description: string; path: string };
+/** An example as `example list` gives it (paperboat#72); `root`: the folder the examples are in (paperboat#85, v0.2.0-beta.9). */
+export type Example = { id: string; app: string; kind: string; name: string; description: string; path: string; root?: string };
 
 /** Julix's examples, or [] without the CLI (or with one that fails): Julix works without Paperboat. */
 export async function examples(): Promise<Example[]> {
@@ -48,6 +48,7 @@ export async function examples(): Promise<Example[]> {
   if (!Array.isArray(list)) return [];
   return list.filter((e) => e && typeof e.id === "string" && typeof e.name === "string").map((e) => ({
     id: e.id, name: e.name, app: String(e.app ?? "julix"), kind: String(e.kind ?? "julix"), description: String(e.description ?? ""), path: String(e.path ?? ""),
+    ...(typeof e.root === "string" && e.root ? { root: e.root } : {}),
   }));
 }
 

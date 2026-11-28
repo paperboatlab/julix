@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { Control, ControlError, paperboatVersion } from "./control.ts";
 import { Examples, scratchFor, type ExampleInfo } from "./examples.ts";
 import { EXAMPLE_LOCKED, Folder, FolderError } from "./folder.ts";
-import { copyExample, holds, hubs, openExample, paperboat } from "./hubs.ts";
+import { copyExample, examples, holds, hubs, openExample, paperboat } from "./hubs.ts";
 import { forget, isScale, isTheme, readConfigFile, recent, remember, saveSettings, settings, writeConfigFile } from "./store.ts";
 import { PackageError } from "./packages.ts";
 import { Sessions, type Kind } from "./session.ts";
@@ -43,8 +43,10 @@ function absolute(p: string): string {
 /** `share`: the session's variables go live to every running Simplicial station (the julix command shares; a test
  *  doesn't, so it never reaches a station the machine is running). `eager`: the folder's Julia session starts, warmed
  *  up, as soon as the folder opens (#43; the julix command's; a test's starts with its first run). An example's starts
- *  as a run would (server/session.ts: nothing is written into it). */
-export function serve(dir: string | null, port = DEFAULT_PORT, control = new Control(), share: Share | null = null, known = new Examples(), eager = false) {
+ *  as a run would (server/session.ts: nothing is written into it). `known`: where the examples are; the folder is
+ *  one when $PAPERBOAT_EXAMPLE says so (`paperboat example open` started this server on it, paperboat#85). */
+export function serve(dir: string | null, port = DEFAULT_PORT, control = new Control(), share: Share | null = null,
+  known = new Examples(examples, { id: process.env.PAPERBOAT_EXAMPLE, folder: dir }), eager = false) {
   let ws: Workspace | null = null;
   let folder: Folder | null = null;
   let sessions: Sessions | null = null;
@@ -341,7 +343,10 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === fs.realpathSync(proces
     process.exit(0);
   }
   if (dir) fs.mkdirSync(dir, { recursive: true });
-  const { server } = serve(dir, port, undefined, new Share(), undefined, true);
+  // the example this server was started for (paperboat docs/apps.md): this server's alone, not passed on to what it starts
+  const example = process.env.PAPERBOAT_EXAMPLE;
+  delete process.env.PAPERBOAT_EXAMPLE;
+  const { server } = serve(dir, port, undefined, new Share(), new Examples(examples, { id: example, folder: dir }), true);
   server.on("listening", () => console.log(`Julix${dir ? `: ${path.resolve(dir)}` : ""} on http://127.0.0.1:${port}/`));
   server.on("error", (e) => { console.error(`julix: ${e.message}`); process.exit(1); });
   for (const s of ["SIGINT", "SIGTERM"]) process.on(s, () => { server.close(); process.exit(0); });

@@ -42,5 +42,6 @@ open, Julix asks where) and opens in its own window. Without Paperboat there are
 An example opened in place is read-only: the editor takes no typing, and Save, New script, New folder, Rename,
 Duplicate, Move to trash and dragging files are off. Running it changes nothing in it either: the run goes on in a
 copy Julia makes in its own temporary folder, so what the script writes (its ``out/`` folder) stays there, and its
-figures are kept outside the example. Save as… saves a copy somewhere else. An example is never added to the recent
+figures are kept outside the example. Code that writes into the example itself, by its whole path, fails with an
+error that says it is read-only and to copy it (with Paperboat 0.2.0-beta.9 or later). Save as… saves a copy somewhere else. An example is never added to the recent
 list, and an example hub is not listed with your hubs.

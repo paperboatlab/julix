@@ -112,6 +112,7 @@ async function exec(control: Control, folder: Folder, code: string, policy: Reco
   const lease = await control.call<Lease>("acquire", {
     runtime: "julia", mode: "exec", project: folder.root, owner: `julix:${folder.root}:packages`,
     command: ["julia", "--startup-file=no", "-e", code], policy,
+    ...(folder.readOnly && !policy.writable_project ? { readonly: true } : {}),   // an example's Manifest installs into the deps volume only
   });
   try {
     for (let state = lease.state, shown = ""; state !== "exited" && state !== "failed";) {   // ponytail: polls; the lease events when Control fans them out
