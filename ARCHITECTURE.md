@@ -130,7 +130,7 @@ flowchart LR
   names, a function, a drawing; per file, the last run's), `Console.tsx` (runs and
   the REPL line), `traceback.ts`, `Workspace.tsx` (Variables on the kit's `VariableList`, the open row plotted, Figures),
   `Keys.tsx` (the folder's Julia session as the kit's `RuntimesKey`), `api.ts` (with the session the
-  editor lints and completes through; a completion sends the statement at the cursor, not the whole script).
+  editor lints and completes through; a completion sends the statement at the cursor, not the whole script: the kit's editor cuts it).
   What is typed is in `App`'s `draftRef`; the page redraws from it when the script becomes unsaved or typing
   pauses, and the cursor reaches only the editor's footer, so a key redraws the editor alone.
 - `client/figure/`: loaded with the first figure shown (`scripts/build.ts` splits the bundle: this and three.js
