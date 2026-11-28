@@ -27,7 +27,7 @@
     "@codemirror/search": "^6.7.2",
     "@codemirror/state": "^6.7.6",
     "@codemirror/view": "^6.43.15",
-    "@paperboatlab/ui": "github:paperboatlab/paperboat-ui#4a5527822d3a4ae2705bcf7d1023defbdeb83ae6",
+    "@paperboatlab/ui": "github:paperboatlab/paperboat-ui#b3301e899df7eb17c08cb12f19cf510f343ba453",
     "@types/node": "^22.19.0",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",

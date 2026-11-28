@@ -42,10 +42,20 @@ test("Vim chosen in Settings: every window has it, i inserts, :w saves, Julix's 
     assert.equal(await one.locator(".cm-vim-panel").count(), 0);
     await one.keyboard.press("Control+Comma");
     await one.getByRole("dialog").getByText("Editor", { exact: true }).click();
-    await one.getByLabel("Keys").selectOption("vim");
+    // the kit's dropdown: a well with the choice and a chevron, opening a menu (a bare <select> read as a text field)
+    const keys = one.getByRole("dialog").getByRole("button", { name: "Keys", exact: true });
+    assert.equal(await keys.innerText(), "Standard");
+    await keys.click();
+    await one.getByRole("menuitemcheckbox", { name: /^Vim/ }).click();
+    assert.equal(await keys.innerText(), "Vim");
     await one.keyboard.press("Escape");
     await one.getByRole("dialog").waitFor({ state: "detached" });
     assert.match(await status(one), /NORMAL/);
+    if (process.env.PB_SHOTS) await one.screenshot({ path: path.join(process.env.PB_SHOTS, "julix-vim.png") });
+    // the Edit menu has it too (and so Ctrl K): Editor keys, Vim checked
+    await one.getByRole("menubar").getByRole("menuitem", { name: "Edit", exact: true }).click();
+    assert.equal(await one.getByRole("menuitemcheckbox", { name: "Editor keys: Vim" }).getAttribute("aria-checked"), "true");
+    await one.keyboard.press("Escape");
     const file = path.join(conf, "paperboat", "julix.toml");
     await waitFor(() => fs.existsSync(file) && /^keymap = "vim"/m.test(fs.readFileSync(file, "utf8")));
 
