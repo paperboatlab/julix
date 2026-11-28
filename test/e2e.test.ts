@@ -140,7 +140,7 @@ test("a fresh deps volume gets JulixPlot before the first session: added to a ne
   try {
     const rb = await done(sb.run("console", "console", using));
     assert.equal(rb.state, "done", JSON.stringify(rb.outputs));
-    assert.match(JSON.stringify(rb.outputs), /\/work\/deps\/packages\/JulixPlot\//);
+    assert.match(JSON.stringify(rb.outputs), /\/deps\/(?:[^"]*\/)?packages\/JulixPlot\//);   // the deps volume's: /work/deps in a container, the state folder's natively
     assert.ok(events.some((e) => e.type === "session" && /from the Manifest/.test(String(e.detail))), "the start says it installs");
     assert.equal(fs.readFileSync(path.join(b.root, "Manifest.toml"), "utf8"), manifest);
     assert.deepEqual(fs.readdirSync(b.root).sort(), ["Manifest.toml", "Project.toml", "example.toml"]);
